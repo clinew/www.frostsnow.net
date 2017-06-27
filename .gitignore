@@ -1,0 +1,7 @@
+.*.sw*
+*.ptr
+*.aux
+*.dvi
+*.log
+*.toc
+website

@@ -1,0 +1,36 @@
+$ADDRESS = "Generated using LaTeX2html: <a href=\"https://github.com/clinew/www.frostsnow.net.git\">Source</a>";
+$CHILDLINE = "<HR>\n";
+#$foot_title = "Generated using \LaTeX2html\nSource: https://github.com/clinew/www.frostsnow.net.git";
+$EXTRA_IMAGE_SCALE = 2;
+
+sub top_navigation_panel {
+	# Generic website header.
+	"<h1 align=\"center\">www.frostsnow.net</h1><HR>\n" .
+	# Sections and navigation.
+	"<table align=\"center\">\n" .
+	# Website sections.
+	"<tr>\n" .
+	"<td style=\"padding-right:10px;padding-left:10px\"><a href=\"/about\">About</a></td>\n" .
+	"<td style=\"padding-right:10px;padding-left:10px\"><a href=\"/blog\">Blog</a></td>\n" .
+	"<td style=\"padding-right:10px;padding-left:10px\"><a href=\"/blurbs\">Blurbs</a></td>\n" .
+	"<td style=\"padding-right:10px;padding-left:10px\"><a href=\"/contact\">Contact</a></td>\n" .
+	"<td style=\"padding-right:10px;padding-left:10px\"><a href=\"/tutor\">Tutor</a></td>\n" .
+	"</tr>\n" .
+	# Next/prev links for blog.
+	($NEXT_GROUP_TITLE || ($PREVIOUS_GROUP_TITLE && (substr($PREVIOUS_GROUP_TITLE, -8) ne "blog</A>")) ?
+		"<tr><td colspan=\"5\" align=\"center\">" .
+		($NEXT_GROUP_TITLE ? "Prev: $NEXT_GROUP_TITLE " : undef) .
+		($NEXT_GROUP_TITLE && ($PREVIOUS_GROUP_TITLE && (substr($PREVIOUS_GROUP_TITLE, -8) ne "blog</A>")) ? "-- " : undef) .
+		($PREVIOUS_GROUP_TITLE && (substr($PREVIOUS_GROUP_TITLE, -8) ne "blog</A>") ? "Next: $PREVIOUS_GROUP_TITLE" : undef) .
+		"</td></tr>\n" : undef) .
+	"</table><HR>\n"
+}
+
+sub bot_navigation_panel {
+
+}
+
+sub custom_title_hook {
+	# For blogging section only -- latex2html can't figure out how to parse the damn title correctly if it begins with a number.
+	substr("$_[0]", 0, 10)
+}
