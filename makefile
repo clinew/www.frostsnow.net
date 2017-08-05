@@ -27,6 +27,9 @@ tutor: tutor.tex
 	cp files/1000_element_merge_sort.ps website/tutor/mergesort.ps
 	cp files/flyer.pdf website/tutor/flyer.pdf
 
+install: tidy
+	cp -rv website/* /var/www/localhost/htdocs/
+
 clean:
 	rm -rf website/
 

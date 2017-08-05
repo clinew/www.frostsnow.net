@@ -6,6 +6,19 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2017-08-04}
+\texttt{test a # echo 1 > crlnumber \\
+test a # openssl ca -gencrl -config openssl.cnf -cert certs/a.pem -keyfile private/a.pem -out crl/a.pem \\
+Using configuration from openssl.cnf \\
+unable to load number from .//crlnumber \\
+error while loading CRL number \\
+140084037076624:error:0D066096:asn1 encoding routines:a2i_ASN1_INTEGER:short line:f_int.c:210: \\
+test a # echo 10 > crlnumber \\
+test a # openssl ca -gencrl -config openssl.cnf -cert certs/a.pem -keyfile private/a.pem -out crl/a.pem \\
+Using configuration from openssl.cnf \\
+test a #} \\
+Guess one isn't a number anymore.  It must feel lonely.
+
 \subsection{2017-07-10}
 \htmladdnormallink{Double King}{https://www.youtube.com/watch?v=w\_MSFkZHNi4} is a pretty neat animated video.
 
