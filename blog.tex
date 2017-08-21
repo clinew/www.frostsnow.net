@@ -2,6 +2,12 @@
 
 \usepackage{html}
 \usepackage{graphicx}
+\usepackage{tikz}
+
+\usetikzlibrary[arrows.meta,backgrounds,fit,positioning]
+
+% Also ****ing broken.
+%\newenvironment{ezcode}{\begin{quote}\begin{verbatim}}{\end{verbatim}\end{quote}}
 
 \begin{document}
 
@@ -10,9 +16,367 @@ This page contains links to writings about topics such as technology, video game
 \tableofchildlinks*
 
 % Gentoo Portage tree local sync
+% Tux in Minetest
+% DotA2 video capture
+
 % Internet Security and the Technocracy
 % X.509
 % Facebook targeting children
+
+% Syncing the Gentoo Portage Tree.
+\section{2017-08-20 Securely Syncing the Gentoo Portage Tree via a Local Server}
+
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tabular}{l|l}
+Before: & After: \\
+\begin{tikzpicture}
+	% Machines.
+	[puter/.style={rectangle,draw,minimum height=1cm,minimum width=1.5cm}]
+	\node (client1)  at (0, 0) [puter] {Client 1};
+	\node (client2)  [right=of client1] [puter] {Client 2};
+	\node (client3)  [right=of client2] [puter] {Client 3};
+	\node (server)   [right=of client3] [puter] {\parbox{1cm}{\centering Local \\ Server}};
+	\node (router)   at (4, 3) [puter] {Router};
+	\node (internet) [above=of router] [puter] {Internet};
+	% Links.
+	\draw (client1.north) -- (router.south)
+		node[pos=0.1,left=0.2,circle](c1-r){}
+		node[pos=0.9,left=0.2,circle](r-c1){};
+	\draw (client2.north) -- (router.south)
+		node[pos=0.1,left=0.07,circle](c2-r){}
+		node[pos=0.75,left=0.07,circle](r-c2){};
+	\draw (client3.north) -- (router.south)
+		node[pos=0.1,right=0.07,circle](c3-r){}
+		node[pos=0.75,right=0.07,circle](r-c3){};
+	\draw (server.north) -- (router.south)
+		node[pos=0.1,right=0.2,circle](s-r){}
+		node[pos=0.9,right=0.2,circle](r-s){}
+		node[pos=0.5,right=0.3,circle](smid){};
+	\draw (router.north) -- (internet.south)
+		node[pos=0.1,left=0.2,circle](r1-i1){}
+		node[pos=0.1,left=0,circle](r2-i2){}
+		node[pos=0.1,right=0,circle](r3-i3){}
+		node[pos=0.1,right=0.2,circle](r4-i4){}
+		node[pos=0.9,left=0.2,circle](i1-r1){}
+		node[pos=0.9,left=0,circle](i2-r2){}
+		node[pos=0.9,right=0,circle](i3-r3){}
+		node[pos=0.9,right=0.2,circle](i4-r4){}
+		node[pos=0.5,left=0.3,circle](mid){};
+	% Traffic.
+	\draw[orange,-Stealth] (r-c1.center) -- (c1-r.center);
+	\draw[orange,-Stealth] (r-c2.center) -- (c2-r.center);
+	\draw[orange,-Stealth] (r-c3.center) -- (c3-r.center);
+	\draw[orange,-Stealth] (r-s.center) -- (s-r.center);
+	\draw[orange,-Stealth] (i1-r1.center) -- (r1-i1.center);
+	\draw[orange,-Stealth] (i2-r2.center) -- (r2-i2.center);
+	\draw[orange,-Stealth] (i3-r3.center) -- (r3-i3.center);
+	\draw[orange,-Stealth] (i4-r4.center) -- (r4-i4.center);
+	\draw [<-] (mid) -- +(-1, 0) node[left]{$\Theta(n)$};
+	\draw [<-] (smid) -- +(1, 0) node[right]{$\Theta(1)$};
+	% LAN box.
+	\begin{scope}[on background layer]
+		\node (bback) [rectangle,thick,draw=green!60!black,inner sep=0.3cm,fit=(client1) (server) (router)] {};
+		\node [below right,text=green!60!black] at (bback.north west) {LAN};
+	\end{scope}
+\end{tikzpicture}
+&  % Copy+paste'd
+\begin{tikzpicture}
+	% Machines.
+	[puter/.style={rectangle,draw,minimum height=1cm,minimum width=1.5cm}]
+	\node (client1)  at (0, 0) [puter] {Client 1};
+	\node (client2)  [right=of client1] [puter] {Client 2};
+	\node (client3)  [right=of client2] [puter] {Client 3};
+	\node (server)   [right=of client3] [puter] {\parbox{1cm}{\centering Local \\ Server}};
+	\node (router)   at (4, 3) [puter] {Router};
+	\node (internet) [above=of router] [puter] {Internet};
+	% Links.
+	\draw (client1.north) -- (router.south)
+		node[pos=0.1,left=0.2,circle](c1-r){}
+		node[pos=0.9,left=0.2,circle](r-c1){};
+	\draw (client2.north) -- (router.south)
+		node[pos=0.1,left=0.07,circle](c2-r){}
+		node[pos=0.75,left=0.07,circle](r-c2){};
+	\draw (client3.north) -- (router.south)
+		node[pos=0.1,right=0.07,circle](c3-r){}
+		node[pos=0.75,right=0.07,circle](r-c3){};
+	\draw (server.north) -- (router.south)
+		node[pos=0.1,right=0,circle](s-r){}
+		node[pos=0.9,right=0,circle](r-s){}
+
+		node[pos=0.1,right=0.2,circle](s-c1){}
+		node[pos=0.9,right=0.2,circle](c1-s){}
+		node[pos=0.1,right=0.4,circle](s-c2){}
+		node[pos=0.9,right=0.4,circle](c2-s){}
+		node[pos=0.1,right=0.6,circle](s-c3){}
+		node[pos=0.9,right=0.6,circle](c3-s){}
+
+		node[pos=0.5,right=0.7,circle](smid){};
+	\draw (router.north) -- (internet.south)
+		node[pos=0.9,right=0,circle](i-s){}
+		node[pos=0.1,right=0,circle](s-i){}
+		node[pos=0.5,left=0.3,circle](mid){};
+	% Traffic.
+	\draw[orange,-Stealth] (r-c1.center) -- (c1-r.center);
+	\draw[orange,-Stealth] (r-c2.center) -- (c2-r.center);
+	\draw[orange,-Stealth] (r-c3.center) -- (c3-r.center);
+	\draw[orange,-Stealth] (r-s.center) -- (s-r.center);
+	\draw[orange,-Stealth] (s-c1.center) -- (c1-s.center);
+	\draw[orange,-Stealth] (s-c2.center) -- (c2-s.center);
+	\draw[orange,-Stealth] (s-c3.center) -- (c3-s.center);
+	\draw[orange,-Stealth] (i-s.center) -- (s-i.center);
+	\draw [<-] (mid) -- +(-1, 0) node[left]{$\Theta(1)$};
+	\draw [<-] (smid) -- +(1, 0) node[right]{$\Theta(n)$};
+	% LAN box.
+	\begin{scope}[on background layer]
+		\node (bback) [rectangle,thick,draw=green!60!black,inner sep=0.3cm,fit=(client1) (server) (router)] {};
+		\node [below right,text=green!60!black] at (bback.north west) {LAN};
+	\end{scope}
+\end{tikzpicture}
+\end{tabular}
+}
+\end{makeimage}
+\caption{Using a local server for the Gentoo Portage Tree takes pressue off of the (often relatively slow) Internet connection and places it onto the (often relatively fast) LAN, especially important for those whose Internet is metered.}
+\end{figure}
+\end{center}
+
+Running multiple Gentoo machines normally means keeping a copy of the Portage tree on each machine; by default this also means updating each copy of the Portage tree by having each machine call out to the Gentoo mirrors on a regular basis for updates.  This is a waste of both local and upstream bandwidth and resources, because, within a given time period, the Portage tree is the exact same regardless of the type of machine it is on; instead, it is more efficient to set up one machine as a server that synchronizes with upstream, then have the other local machines synchronize to said local server.  This guide will explain how to do that.
+
+Though there are multiple protocols that Portage can use for synchronization, this guide will cover only SSH, and \texttt{rsync+stunnel}.  Both of these are secure, allowing synchronization over an untrusted network, albeit the local server must be trusted.  Securely syncing the server to the upstream Portage tree with \texttt{FEATURES=webrsync-gpg} is not covered here, as it is instead covered \htmladdnormallink{here}{https://wiki.gentoo.org/wiki/Handbook:AMD64/Working/Features#Validated_Gentoo_repository_snapshots}.
+
+\subsection{SSH Synchronization}
+One of the pros of SSH-based synchronization is that it requires no extra server configuration for machines that already have SSH access to the server.  The downside is that SSH access means shell access, which might not be desireable if any of the local machines is not fully trusted, for example, because it is running proprietary applications for, say, video games; one could try and circumvent this potential security weakness by giving the SSH user a restricted shell such as \texttt{rssh}, but I was unable to get \texttt{rssh} working with the \texttt{rsync} arguments that Portage wanted to use (note: Portage calls \texttt{rsync} over the SSH session).  Thus I prefer \texttt{rsync+stunnel}, but am including the SSH method for completeness and possible future reference.
+\subsubsection{Server} Assuming that \texttt{sshd} is already set up (find one of many guides if it is not), the only thing that needs to be done is to add a special user for synchronization.  In order to add the user, run
+\begin{quote}
+\begin{verbatim}
+	# useradd -m -s /bin/bash rsyncuser
+	# passwd rsyncuser
+\end{verbatim}
+\end{quote}
+\ldots then edit the SSH daemon configuration file, usually \texttt{/etc/ssh/sshd_config}, to contain the following line:
+\begin{quote}
+\begin{verbatim}
+	AllowUsers rsyncuser
+\end{verbatim}
+\end{quote}
+Depending on the selected authentication method for SSH, this may be enough to give the user access; however, in the case that only key-based authentication is allowed (usually via something like \texttt{PasswordAuthentication no} \& \texttt{ChallengeResponseAuthentication no} in \texttt{sshd_config}) an SSH keypair will need to be generated for the user and the private key copied to each client that wishes to synchronize with the server.  This can be done with the following commands:
+\begin{quote}
+\begin{verbatim}
+	# cd /home/rsyncuser
+	# su rsyncuser
+	$ umask 0066
+	$ mkdir -p .ssh
+	$ ssh-keygen -a 16 -t ed25519
+	$ cp .ssh/id_ed25519.pub .ssh/authorized_keys
+\end{verbatim}
+\end{quote}
+This will create a keypair for the \texttt{rsyncyser} and authorize that keypair for SSH login.  The \texttt{.ssh/id_ed25519} file (the private key) will then need to be copied to the client machines, probably via a USB storage device:
+\begin{quote}
+\begin{verbatim}
+	# cp .ssh/id_ed25519 /path/to/probably/usb/storage/device
+\end{verbatim}
+\end{quote}
+
+This ends the server-side configuration.
+
+\subsubsection{Clients}
+By default, Portage knows how to use SSH for synchronization, so basic setup is quite simple, although some of the details are rather esoteric.
+
+In order to tell Portage to synchronize over SSH, if it hasn't been done already, set up the main repository configuration via:
+\begin{quote}
+\begin{verbatim}
+	# mkdir -p /etc/portage/repos.conf
+	# cp /usr/share/portage/config/repos.conf /etc/portage/repos.conf/gentoo.conf
+\end{verbatim}
+\end{quote}
+This creates, at the time of this writing, at least, a sane configuration file for the default Portage tree that can then be reconfigured.  With this file created, Portage should function as it always has; the defaults must be overriden in order to actually change its behavior. In order to use SSH, change the \texttt{sync-uri} option under the \texttt{[gentoo]} section to read:
+\begin{quote}
+\begin{verbatim}
+	sync-uri = ssh://rsyncuser@192.168.1.1/usr/portage
+\end{verbatim}
+\end{quote}
+\ldots where \texttt{192.168.1.1} is replaced with the network address of the local server.  Portage will now begin trying to sync via SSH.
+
+"Trying" may be the modus operandi depending on whether or not the local server strictly requires keys or will accept user passwords; it is thus useful to understand where Portage stores its SSH information, as its home directory is not \texttt{/home/portage}, but, as \texttt{/etc/passwd} reveals, \texttt{/var/tmp/portage}, thus SSH configuration goes into \texttt{/var/tmp/portage/.ssh}.  In order to get Portage to use \texttt{rsyncuser}'s key, run the following:
+\begin{quote}
+\begin{verbatim}
+	# mkdir -p /var/tmp/portage/.ssh
+	# umask 0066
+	# cp /path/from/probably/usb/device/with/rsyncusers/key/id_ed25519 /var/tmp/portage/.ssh/id_ed25519
+	# chown -R portage:portage /var/tmp/portage/.ssh
+\end{verbatim}
+\end{quote}
+Portage should now pickup \texttt{rsyncuser}'s key when it tries to synchronize.
+
+Admittedly, storing valuable authentication information in a \texttt{/var/tmp} subdirectory seems risky at best.  Another option for storing the key is to place the key at a more stable location and then tell Portage where to find it.  Start by placing the key somewhere safer:
+\begin{quote}
+\begin{verbatim}
+	# mkdir -p /usr/local/portage/.ssh
+	# chmod 700 /usr/local/portage/.ssh
+	# mv /var/tmp/portage/.ssh/id_ed25519 /usr/local/portage/.ssh/
+\end{verbatim}
+\end{quote}
+\ldots then tell Portage where to find the key by adding the following line to \texttt{/etc/portage/make.conf}:
+\begin{quote}
+\begin{verbatim}
+	PORTAGE_SSH_OPTS="-i /usr/local/portage/.ssh/id_ed25519"
+\end{verbatim}
+\end{quote}
+Portage will now look for the \texttt{rsyncuser}'s key at the previously-specified location.
+
+This solves the \texttt{rsyncuser}'s key problem, but what about the important \texttt{known_hosts} file?  Well, I didn't get that far.  I don't fully trust of all my machines, and do not want to give all of them shell access to my server, and, since I couldn't get \texttt{rssh} to work with Portage and was looking for an excuse to play with \texttt{stunnel}, I decided to work on it instead, thus \texttt{rsync+stunnel} is the topic of the next section.
+
+\subsection{Rsync+stunnel Synchronization}
+This method works by using an \texttt{rsync} daemon to synchronize between the local server and client; however, because \texttt{rsync} is unencrypted, the connection is wrapped via the \texttt{stunnel} daemon, which uses \htmladdnormallink{TLS}{https://en.wikipedia.org/wiki/Transport_Layer_Security} for encryption and authentication.  \texttt{stunnel} must be configured on both the local server and each client.
+
+\subsubsection{Server}
+Start by setting up the \texttt{rsync} daemon without \texttt{stunnel}.  By default, Gentoo comes with a disabled but sane configuration file at \texttt{/etc/rsyncd.conf}.  Adding a few extra lines gives, excluding comments, the following:
+\begin{quote}
+\begin{verbatim}
+	pid file = /run/rsyncd.pid
+	use chroot = yes
+	read only = yes
+	hosts allow = 192.168.1.1/16
+	reverse lookup = no
+	timeout = 60
+
+	[gentoo-portage]
+	path = /usr/portage
+	comment = Gentoo Portage tree
+	exclude = /distfiles /packages
+\end{verbatim}
+\end{quote}
+By default this configuration file creates an \texttt{rsync} \textit{module} that clients can synchronize with; this module is read-only and excludes directories that are not a part of the Portage Tree.  The extra options are: \texttt{hosts allow = 192.168.1.1/16}, which tells \texttt{rsync} to only accept connections from hosts in the specified block and must be appropriate to the local network; \texttt{reverse lookup = no}, which disables reverse-DNS lookups of client IP addresses; and \texttt{timeout = 60}, which sets a small timeout for unresponsive clients.  See \texttt{man 5 rsyncd.conf} for details; the extra options are not strictly necessary for the purposes of this guide.
+
+The next step is to install and configure \texttt{stunnel}.  This involves four steps: 1) Installing the program, 2) configuring the service, 3) generating certificates, and 4) creating the service: To install \texttt{stunnel}, run:
+\begin{quote}
+\begin{verbatim}
+	# emerge -av stunnel
+\end{verbatim}
+\end{quote}
+For convenience, the Gentoo developers created a useful example configuration file for \texttt{rsync+stunnel} which may be installed by running:
+\begin{quote}
+\begin{verbatim}
+	USE="stunnel" emerge -av rsync
+\end{verbatim}
+\end{quote}
+This creates the file \texttt{/etc/stunnel/rsyncd.conf}.  Move it to \texttt{/etc/stunnel/rsyncd-stunnel.conf} for \texttt{init} scripts (later), and reconfigure it such that, excluding comments, it has the following options:
+\begin{quote}
+\begin{verbatim}
+	foreground = no
+	pid = /var/run/stunnel/rsyncd-stunnel.pid
+	socket = l:TCP_NODELAY=1
+	socket = r:TCP_NODELAY=1
+	setuid = root
+	setgid = root
+
+	[rsync]
+	accept = 874
+	cert = /etc/stunnel/rsyncd-stunnel.crt
+	key  = /etc/stunnel/rsyncd-stunnel.key
+	client = no
+
+	exec = /usr/bin/rsync
+	execargs = rsync --server --daemon --config=/etc/rsyncd.conf .
+\end{verbatim}
+\end{quote}
+Most of these options come with the default configuration file, but make sure to change the \texttt{pid} option.  The \texttt{cert} and \texttt{key} options specify where the \htmladdnormallink{X.509}{https://en.wikipedia.org/wiki/X.509} certificate and its key are to be loaded from (they will be generated later).  Port \texttt{874} is used in place of \texttt{873}, as it is not a plaintext \texttt{rsync} service.  Client verification is not wanted here, so make sure to remove any \texttt{verify} and \texttt{CAfile} lines.
+
+In order to generate the server's certificate, run the following series of commands:
+\begin{quote}
+\begin{verbatim}
+	# cd /etc/stunnel
+	# umask 0077
+	# openssl genrsa -out rsyncd-stunnel.key 4096
+	# openssl req -key rsyncd-stunnel.key -new -x509 -days 7200 -sha512 -out rsyncd-stunnel.crt -subj '/CN=rsyncd-stunnel/'
+\end{verbatim}
+\end{quote}
+The short story here is that this will create a certificate and key pair for TLS that will last for almost 20 years, see \texttt{man genrsa} and \texttt{man req} for details.
+
+Finally, create the service with:
+\begin{quote}
+\begin{verbatim}
+	# cd /etc/init.d
+	# ln -s stunnel rsyncd-stunnel
+\end{verbatim}
+\end{quote}
+This uses the default \texttt{stunnel} init script, except it will look for a configuration file at \texttt{/etc/stunnel/rsyncd-stunnel.conf}, hence the earlier renaming that was done.  To start the service, run \texttt{rc-service rsyncd-stunnel start}, and don't forget to add it to the default runlevel via:
+\begin{quote}
+\begin{verbatim}
+	# rc-update add rsyncd-stunnel default
+\end{verbatim}
+\end{quote}
+
+The server sould now be configured and ready for synchronization.  The clients must now be configured to trust and use the server.
+
+\subsubsection{Clients}
+The client must now be configured so that when Poratge attempts to sync it will use the secure connection \textbf{and} it will validate that it is syncing with the server, otherwise a malicious user could imitate the server and send a compromised Portage Tree.  This involves installing and configuring \texttt{stunnel}, configuring Portage, then creating the service.
+
+Begin by installing \texttt{stunnel}:
+\begin{quote}
+\begin{verbatim}
+	# emerge -av stunnel
+\end{verbatim}
+\end{quote}
+\ldots then configure \texttt{stunnel} so that, without comments, the configuration file \texttt{/etc/stunnel/stunnel.conf} reads:
+\begin{quote}
+\begin{verbatim}
+	setuid = stunnel
+	setgid = stunnel
+	pid = /run/stunnel/stunnel.pid
+	socket = l:TCP_NODELAY=1
+	socket = r:TCP_NODELAY=1
+
+	[rsync-stunnel]
+	client     = yes
+	CAfile     = /etc/stunnel/rsyncd-stunnel.crt
+	verifyPeer = yes
+	accept     = 127.0.0.1:873
+	connect    = 192.168.1.200:874
+\end{verbatim}
+\end{quote}
+This creates an \texttt{stunnel} \emph{service}.  The \texttt{client} argument lets \texttt{stunnel} know to run \texttt{rsync} as a client rather than as a server.  The \texttt{CAfile} argument specifies the location of the server certificate to use (note that it has not yet been copied over to the client).  The \texttt{verifyPeer} is especially important as enabling it will actually validate the server certificate; without this enabled a malicious user could intercept and modify the traffic.  The \texttt{accept} argument specifies where the \texttt{stunnel} program will listen for client connections, Portage will later be configured to make connections here.  The \texttt{connect} argument specifies where the \texttt{stunnel} program will connect to; it must be set to the address and port of the local server.  The other options are fairly standard.  Note that, unlike the server, this setup is using the default \texttt{stunnel} settings, configuring multiple \texttt{stunnel} services at the OpenRC level would require modifying a few parameters, such as the PID (Process ID) and the filename of the configuration.
+
+Now that \texttt{stunnel} has been configured, make sure to copy the certificate from the local server to the client.  This should be done via a trusted storage device (USB stick, SD Card, \&c.) or the certificate retrieved via a command such as OpenSSL's \texttt{s\_client} (usage not covered here) and its fingerprint manually verified.
+\begin{quote}
+\begin{verbatim}
+	# cp /path/from/secure/storage/device /etc/stunnel/rsyncd-stunnel.crt
+\end{verbatim}
+\end{quote}
+\texttt{stunnel} now has all that it needs to securely tunnel a connection to the server.
+
+Portage must now be configured to use the secure tunnel.  As with SSH configuration, begin by overriding the default repository configuration:
+\begin{quote}
+\begin{verbatim}
+	# mkdir -p /etc/portage/repos.conf
+	# cp /usr/share/portage/config/repos.conf /etc/portage/repos.conf/gentoo.conf
+\end{verbatim}
+\end{quote}
+\ldots then modify the \texttt{sync-uri} argument to correspond to the \texttt{accept} argument configured in \texttt{stunnel}:
+\begin{quote}
+\begin{verbatim}
+	sync-uri = rsync://127.0.0.1:873/gentoo-portage
+\end{verbatim}
+\end{quote}
+This will synchronize with the \texttt{gentoo-portage} module defined on the local server's \texttt{/etc/rsyncd.conf}.  Note how the use of \texttt{stunnel} is completely transparent to Portage.  This has the minor disadvantage that error diagnostics must be found in log message from \texttt{stunnel} and not the Portage frontend, but is usually not a problem once things have been configured properly.
+
+Next, start the service and add it to the default runlevel:
+\begin{quote}
+\begin{verbatim}
+	# rc-service stunnel start
+	# rc-update add stunnel default
+\end{verbatim}
+\end{quote}
+\ldots then try it out with:
+\begin{quote}
+\begin{verbatim}
+	# emerge --sync
+\end{verbatim}
+\end{quote}
+Portage should now be securely synchronzing to the local server!  Repeat these steps for each client that needs to synchronize with the local server.
+
 
 % Ancient Apparition Bowling
 \section{2017-07-17 Ancient Apparition Bowling}
