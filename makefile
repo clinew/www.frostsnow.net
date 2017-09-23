@@ -14,7 +14,7 @@ ${segments}: %: %.tex
 
 blog: blog.tex
 	mkdir -p website/blog
-	latex2html ${l2hflags} -split 4 -link 1 -custom_titles -dir website/blog blog.tex
+	latex2html ${l2hflags} -split 4 -link 1 -custom_titles -reuse 1 -dir website/blog blog.tex
 
 contact: contact.tex
 	mkdir -p website/contact

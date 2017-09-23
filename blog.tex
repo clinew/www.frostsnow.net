@@ -4,7 +4,7 @@
 \usepackage{graphicx}
 \usepackage{tikz}
 
-\usetikzlibrary[arrows.meta,backgrounds,fit,positioning]
+\usetikzlibrary[arrows.meta,backgrounds,calc,fit,positioning]
 
 % Also ****ing broken.
 %\newenvironment{ezcode}{\begin{quote}\begin{verbatim}}{\end{verbatim}\end{quote}}
@@ -21,6 +21,166 @@ This page contains links to writings about topics such as technology, video game
 % Internet Security and the Technocracy
 % X.509
 % Facebook targeting children
+
+% Adding Certificate Revocation Lists (CRLs) to an Existing OpenSSL Implementation.
+\section{2017-09-22 Adding Certificate Revocation Lists (CRLs) to an Existing OpenSSL Implementation}
+I recently took it upon myself to add Certificate Revocation List (CRL) functionality to an SSL-enabled program (\htmladdnormallink{InspIRCd}{https://github.com/inspircd/inspircd/pull/1370}).  This blog details both the code that I used and some unexpected functionality regarding how CRLs behave.  Hopefully this blog will prove useful to someone else who needs to tread this path.
+
+\subsection{Code Itself}
+The code itself is actually quite simple, consisting of two basic steps: loading the CRL files and then enabling CRL checking.  In order to load the CRL files, begin by getting the \texttt{X509_STORE *} from the \texttt{SSL_CTX *} by calling \texttt{SSL_CTX_get_cert_store(3)}, then load the CRL files into the \texttt{X509_STORE *} by calling \texttt{X509_STORE_load_locations()} with the specified CRL file and path locations.  The definition of the functions can be found in \texttt{openssl/x509_vfy.h} in your system's include file directory.  The code looks something like:
+\begin{quote}
+\begin{verbatim}
+	SSL_CTX *ctx = sslctx; // Defined elsewhere.
+	X509_STORE *store;
+	char *crlfile = "/path/to/single/file.pem";
+	char *crlpath = "/path/to/entire/directory";
+
+	if (!(store = SSL_CTX_get_cert_store(ctx))) {
+		fprintf(stderr, "No cert store found\n");
+		return -1;
+	}
+	if (!X509_STORE_load_locations(store, crlfile, crlpath)) {
+		fprintf(stderr, "Unable to load CRL files\n");
+		return -1;
+	}
+\end{verbatim}
+\end{quote}
+This will load the CRL files, but will not enable CRL checking; this has to be done by setting a flag value in the \texttt{X509_STORE *}.  There at least two possible options: one is to check only the leaf certificate, the other is to check all certificates in the chain.  The former option can be accomplished by setting only \texttt{X509_V_FLAG_CRL_CHECK} while the latter can be accomplished by setting two flags \texttt{X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL}.  The latter option (the entire chain) is almost certainly what you want.
+\begin{quote}
+\begin{verbatim}
+	char* crlmode; // Defined elsewhere.
+	int crlflags;
+
+	if (!strcmp(crlmode, "chain")) {
+		crlflags = X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL;
+	} else if (!strcmp(crlmode, "leaf")) {
+		crlflags = X509_V_FLAG_CRL_CHECK;
+	} else {
+		fprintf(stderr, "Unknown flag mode '%s'\n", crlmode);
+		return -1;
+	}
+	if (X509_STORE_set_flags(store, crlflags) != 1) {
+		fprintf(stderr, "Unable to set flags\n");
+		return -1;
+	}
+\end{verbatim}
+\end{quote}
+\ldots and that's it!  CRLs should now be enabled for your program.  However, do not rest easily just yet, as CRLs offer several pitfalls for the unwary, as detailed below.
+
+\subsection{Missing CRL Files}
+Consider the following, simple certificate chain:
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tikzpicture}
+	% Styles.
+	[ca/.style={rectangle,draw=green!60!black,minimum height=1cm,minimum width=1.5cm},
+	leaf/.style={rectangle,draw=orange,minimum height=1cm, minimum width=1.5cm}]
+	% Certificates.
+	\node (A) at (0, 0) [ca] {A};
+	\node (B) [below=of A] [ca] {B};
+	\node (C) [below=of B] [leaf] {C};
+	\draw[-Stealth] (A) -- (B);
+	\draw[-Stealth] (B) -- (C);
+	% Legend.
+	\node (lanchor) at ($(current bounding box.south east) + (2, 0)$) {};
+	\node (legend) at (lanchor) [above=1.1cm] {Legend};
+	\node (l1) at (lanchor) [above=0.6cm,draw=green!60!black] {Trusted CA};
+	\node (l2) at (lanchor) [above=0.0cm,draw=orange] {Client};
+	\node [rectangle,draw,fit=(legend) (l1) (l2)] {};
+\end{tikzpicture}
+}
+\end{makeimage}
+\caption{Simple certificate chain, where A and B are CAs and C is the client.}
+\end{figure}
+\end{center}
+The server trusts Certificate Authorities (CAs) A and B to issue valid certificates, thus C's certificate will be accepted.  Without CRLs this scenario will work as expected, C will be able to connect to the server without a problem.  Now, assume that the server enables CRLs, generates a CRL for A, and then configures itself to use A's CRL; a CRL for B is not generated as B has not revoked any certificate and thus there doesn't \emph{seem} to be any need to generate a CRL for B.  As you can probably guess by now, C will not be able to connect in this scenario, because the default CRL-checking method requires \emph{every} CA in the chain to have a CRL file loaded, thus C cannot connect unless both A \emph{and} B generate CRL files, \emph{even if they have no revoked certificates}.
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tikzpicture}
+	% Styles.
+	[ca/.style={rectangle,draw=green!60!black,minimum height=1cm,minimum width=1.5cm},
+	leaf/.style={rectangle,draw=red,minimum height=1cm, minimum width=1.5cm},
+	x/.pic={
+		\draw[--] (-1mm,1mm) -- (1mm,-1mm);
+		\draw[--] (-1mm,-1mm) -- (1mm,1mm);
+	}]
+	% Certificates.
+	\node (A) at (0, 0) [ca] {A};
+	\node (B) [below=of A] [ca] {B};
+	\node (C) [below=of B] [leaf] {C};
+	\draw[-Stealth] (A) -- (B);
+	\draw[-Stealth] (B) -- (C)
+		node[pos=0.5](fail){}
+		pic [pos=0.5,red] {x};
+	\node (error) [right=of fail] {No CRL file for B};
+	\draw[-Stealth] (error) -- (fail);
+	% Legend.
+	\node (lanchor) at ($(current bounding box.south east) + (1.5, 0)$) {};
+	\node (legend) at (lanchor) [above=1.1cm] {Legend};
+	\node (l1) at (lanchor) [above=0.6cm,draw=green!60!black] {Trusted CA};
+	\node (l2) at (lanchor) [above=0.0cm,draw=red] {Client};
+	\node [rectangle,draw,fit=(legend) (l1) (l2)] {};
+\end{tikzpicture}
+}
+\end{makeimage}
+\caption{Each CA is required to have a CRL file.}
+\end{figure}
+\end{center}
+
+The consequence of this is that enabling CRL-checking requires gathering CRL files, a task that is likely non-trivial.  The alternative is to override OpenSSL's verify callback by defining your own verify function and then telling OpenSSL to use said function with \texttt{X509_STORE_set_verify_cb(3)}.  I, however, do not intend to touch that with a 10-foot pole.
+
+\subsection{Using a CRL Path}
+Suppose that you wish to use a directory to store CRL files separately for each CA (instead of one big CRL file), then have OpenSSL load in each CRL file from this directory.  An obvious benefit of this approach is that it allows you to create a separate CRL file for each CA; using the certificate chain from the previous section, this would mean a directory containing both \texttt{crl/a.pem} and \texttt{crl/b.pem}.  One would think that it would be enough to place each CRL file in said directory, then point OpenSSL to said directory, but that actually doesn't work.
+
+While OpenSSL indeed expects each CA to have its own CRL file, it expects the CA file to be named in a very specific manner; it expects the file to be named as the concatenation of the first part of the \emph{hash} of its issuer name and \texttt{.rX} where \texttt{X} starts as \texttt{0} and is incremented for each hash collision that occurs.  For example, suppose the hash of CA B is \texttt{deadbeef}, then its CRL filename is expected to be \texttt{deadbeef.r0}.  Arguably, the easiest way to support this hash-based filename is to create the actual CRL file with the name of its respective issuer, then create the symbolic link for OpenSSL, which can be done by something like:
+\begin{quote}
+\begin{verbatim}
+	for crl in `ls *.pem`; do
+		hash=$(openssl crl -hash -in "${crl}" -noout)
+		# Just assume no collisions for simplicity.
+		ln -s "${crl}" "${hash%$'\n'}.r0"
+	done
+\end{verbatim}
+\end{quote}
+\ldots which generates a hash for each file suffixed with \texttt{.pem} in the current directory (WARNING: does not take into account hash collisions).  With the symbolic links created, you should now be able to use a CRL path.
+
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tikzpicture}
+	% Styles.
+	[ca/.style={rectangle,draw=green!60!black,minimum height=1cm,minimum width=1.5cm},
+	leaf/.style={rectangle,draw=orange,minimum height=1cm, minimum width=1.5cm}]
+	% Certificates.
+	\node (A) at (0, 0) [ca,align=center] {A \\ Issuer: A \\ Subject: A \\ Issuer Hash: \texttt{3c74704b} \\ Subject Hash: \texttt{3c74704b}};
+	\node (B) [below=of A] [ca,align=center] {B \\ Issuer: A \\ Subject: B \\ Issuer Hash: \texttt{3c74704b} \\ Subject Hash: \texttt{deadbeef}};
+	\node (C) [below=of B] [leaf,align=center] {C \\ Issuer: B \\ Subject: C \\ Issuer Hash: \texttt{deadbeef} \\ Subject Hash: \texttt{89305aed}};
+	\draw[-Stealth] (A) -- (B);
+	\draw[-Stealth] (B) -- (C);
+	\node (A CRL) [right=of A,align=left] {CRL file: \\ \texttt{3c74704b.r0}};
+	\node (B CRL) [right=of B,align=left] {CRL file: \\ \texttt{deadbeef.r0}};
+	\draw[-Stealth,gray] (A) -- (A CRL);
+	\draw[-Stealth,gray] (B) -- (B CRL);
+	% Legend.
+	\node (lanchor) at (current bounding box.south east) {};
+	\node (legend) at (lanchor) [above=1.1cm] {Legend};
+	\node (l1) at (lanchor) [above=0.6cm,draw=green!60!black] {Trusted CA};
+	\node (l2) at (lanchor) [above=0.0cm,draw=orange] {Client};
+	\node [rectangle,draw,fit=(legend) (l1) (l2)] {};
+\end{tikzpicture}
+}
+\end{makeimage}
+\caption{Each CA requires its own CRL file.  The CRL file name is based on the hash of its issuer name.  Note that the \emph{issuer} of the CRL file is the \emph{subject} of its respective CA.}
+\end{figure}
+\end{center}
+
+One more caveat: OpenSSL does not seem to report any error if the CRL path directory does not exist.  Figures.
+
 
 % Syncing the Gentoo repository.
 \section{2017-08-23 Securely Syncing the Gentoo Repository via a Local Server}
