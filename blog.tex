@@ -4,7 +4,7 @@
 \usepackage{graphicx}
 \usepackage{tikz}
 
-\usetikzlibrary[arrows.meta,backgrounds,calc,fit,positioning]
+\usetikzlibrary[arrows.meta,backgrounds,calc,fit,positioning,shapes.multipart]
 
 % Also ****ing broken.
 %\newenvironment{ezcode}{\begin{quote}\begin{verbatim}}{\end{verbatim}\end{quote}}
@@ -21,6 +21,95 @@ This page contains links to writings about topics such as technology, video game
 % Internet Security and the Technocracy
 % X.509
 % Facebook targeting children
+
+% Booting BeagleBone Black With an Initramfs
+\section{2017-10-05 Booting BeagleBone Black With an Initramfs}
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\newcommand{\fn}[1]{\hspace*{1ex}\texttt{#1}}
+\fbox{
+\begin{tabular}{l l}
+Before: & After: \\
+\begin{tikzpicture}
+	\node at (0, 0) [rectangle split,rectangle split parts=2,rectangle split part fill={green!50, green!50},align=left,draw,text width=4cm]
+		{\rule[-3cm]{0cm}{3cm}\parbox[t]{3cm}{Boot partition: \\ \fn{MLO} \\ \fn{u-boot.img}}
+		\nodepart{two} \rule[-5cm]{0cm}{5cm}\parbox[t]{3cm}{Root partition: \\ \fn{zImage} \\ \fn{am335x-boneblack.dtb} \\ \fn{\ldots}}};
+\end{tikzpicture}
+&
+\begin{tikzpicture}
+	\node at (0, 0) [rectangle split,rectangle split parts=2,rectangle split part fill={green!50, red!50},align=left,draw,text width=4cm]
+		{\rule[-3cm]{0cm}{3cm}\parbox[t]{3cm}{Boot partition: \\ \fn{MLO} \\ \fn{u-boot.img} \\ \fn{linux-4.4.68+} \\ \fn{am335x-boneblack.dtb} \\ \fn{initramfs} \\ \fn{uEnv.txt}}
+		\nodepart{two} \rule[-5cm]{0cm}{5cm}\parbox[t]{3cm}{Root partition: \\ \fn{\ldots}}};
+\end{tikzpicture}
+\end{tabular}
+\begin{tabular}{c l}
+\multicolumn{2}{c}{\textbf{Legend}} \\
+\begin{tikzpicture}
+	\node at (0, 0) [fill=green!50,draw] {};
+\end{tikzpicture} & Unencrypted \\
+\begin{tikzpicture}
+	\node at (0, 0) [fill=red!50,draw] {};
+\end{tikzpicture} & Encrypted
+\end{tabular}
+}
+\end{makeimage}
+\caption{Visualization of the SD Card before and after modifications.  Contents are not to scale.}
+\end{figure}
+\end{center}
+
+The instructions for installing Gentoo on my BeagleBone Black (BBB)\htmladdnormallink{[1]}{https://wiki.gentoo.org/wiki/BeagleBone_Black} gave me a working OS, but one without the root partition encrypted.  Unencrypted OSes make me sad, but an encrypted root partition means using an \texttt{initramfs}; to make matters more complicated, the kernel and device tree are on the root partition, but they need to be on the boot partition (because the root partition will be encrypted).  This blog will explain how I was able to make these changes; it will not cover creating an \texttt{initramfs} nor creating an encrypted root partition using LUKS and \texttt{cryptsetup}.
+
+\subsection{Das U-Boot}
+Das U-Boot, colloquially known simply as "U-Boot", is roughly analogous to the BIOS and/or UEFI portion of normal desktop towers.  Like desktops, the boot process can be interrupted and the user taken to a configuration interface by typing a certain key early on in the boot process.  For the BBB, this can be done by pressing the 'Space' button, which takes the user to a Command-Line Interface (CLI); from here, \texttt{help} may be run in order to provide a list of commands or to print usage information for a specific command.  One of the most useful commands to run is \texttt{printenv}, which will list all of the environment variables; these variable are important because their values can be either simple values or an entire script.  It is these variables that must be modified in order to load and boot an \texttt{initramfs}, kernel, and device tree file from the boot partition.
+
+While one can modify the environment variables before each boot, this is extremely tedious.  Thankfully, U-Boot allows one to define a \texttt{uEnv.txt} file in the boot partition that will be read in before the boot process is completed and which will set the environment variables as specified in the file.  Thus one can simply write this file rather than constantly modify the environment variables at each boot.
+
+\subsection{uEnv.txt}
+This section will explain what variables I added/modified and why I modified them.  Though they are all crammed together in the actual file, for conceptual purposes I will divide them into three categories: filename definitions, load scripts, and boot scripts.
+
+The first of the sections, filename definitions, is straightforward enough:
+\begin{quote}
+\begin{verbatim}
+	# BEFORE
+	bootfile=zImage
+	# AFTER
+	bootfile=linux-4.4.68+
+	rdfile=initramfs
+\end{verbatim}
+\end{quote}
+Although changing the name from \texttt{zImage} to \texttt{linux-4.4.68+} isn't strictly necessary, I prefer to have my kernels include their version in the name as it makes booting, upgrading, and dealing with regressions easier.  The \texttt{rdfile} variable is added for consistency with the existence of the \texttt{bootfile} variable, and is used later.  Note that the same \texttt{initramfs} can often be used across multiple kernel versions.
+
+The second section, load scripts, consists of the series of commands used to load the kernel, initramfs, and device tree into memory:
+\begin{quote}
+\begin{verbatim}
+	# BEFORE
+	loadimage=load ${devtype} ${bootpart} ${loadaddr} ${bootdir}/${bootfile}
+	loadfdt=load ${devtype} ${bootpart} ${fdtaddr} ${bootdir}/${fdtfile}
+	loadramdisk=load mmc ${mmcdev} ${rdaddr} ramdisk.gz
+	# AFTER
+	loadimage=fatload mmc ${mmcdev} ${loadaddr} ${bootfile}
+	loadfdt=fatload mmc ${mmcdev} ${fdtaddr} ${fdtfile}
+	loadramdisk=fatload mmc ${mmcdev} ${rdaddr} ${rdfile}
+\end{verbatim}
+\end{quote}
+A few things are worth noting here.  First is that I ignored the \texttt{devtype} and \texttt{bootpart} variables and just loaded the kernel (\texttt{loadimage}), device tree (\texttt{loadfdt}), and initramfs (\texttt{loadramdisk}) directly from the MMC (SD Card), since that is what I wanted; this worked on my SD Card, but may be fragile on other configurations, use at your own risk!  Second, there is already an instruction for loading a ramdisk which, from a cursory glance of other environment variables, appears to be associated with boot code for a live OS rather than an \texttt{initramfs} for booting; since I currently am not interested in nor know how to use this functionality, it appears safe to modify.  Last, I removed the \texttt{bootdir} prefix for the kernel and device tree filepaths, since I'm simply going to place them at the root directory of the boot partition.
+
+The last section, boot scripts, is the most complicated section, because it contains the commands and logic needed to actually boot the system:
+\begin{quote}
+\begin{verbatim}
+	# BEFORE
+	args_mmc=run finduuid;setenv bootargs console=${console} ${optargs} root=PARTUUID=${uuid} rw rootfstype=${mmcrootfstype}
+	mmcloados=run args_mmc; if test ${boot_fdt} = yes || test ${boot_fdt} = try; then if run loadfdt; then bootz ${loadaddr} - ${fdtaddr}; else if test ${boot_fdt} = try; then bootz; else echo WARN: Cannot load the DT; fi; fi; else bootz; fi;
+	# AFTER
+	args_mmc=run finduuid;setenv bootargs console=${console} ${optargs} root=/dev/mapper/mmcblk0p2 initrd=initramfs rw rootfstype=${mmcrootfstype}
+	mmcloados=run args_mmc; run loadramdisk; if test ${boot_fdt} = yes || test ${boot_fdt} = try; then if run loadfdt; then bootz ${loadaddr} ${rdaddr} ${fdtaddr}; else if test ${boot_fdt} = try; then bootz; else echo WARN: Cannot load the DT; fi; fi; else bootz; fi;
+\end{verbatim}
+\end{quote}
+While the commands may appear relatively complex, the modifications are actually pretty simple.  For \texttt{args_mmc}, the \texttt{root=PARTUUID=\${uuid}} had to be changed to the mapping set up by the encryption scripts, in my case to \texttt{root=/dev/mapper/mmcblk0p2}; the argument \texttt{initrd=initramfs} was also added to let the kernel know about the \texttt{initramfs} file (but may not strictly be necessary in this context).  Two modifications were made to \texttt{mmcloados}: the first was to load the initramfs by calling \texttt{run loadramdisk;}, the second was to change the \texttt{bootz} command to contain the address of the \texttt{initramfs} to load (\texttt{rdaddr}) rather than not loading one (\texttt{-}).
+
+Thus with each of these modifications I was able to boot with an encrypted root partition.  Hopefully you will have the same luck, and don't forget to copy your files from the root partition to the boot partition!
+
 
 % Adding Certificate Revocation Lists (CRLs) to an Existing OpenSSL Implementation.
 \section{2017-09-22 Adding Certificate Revocation Lists (CRLs) to an Existing OpenSSL Implementation}
