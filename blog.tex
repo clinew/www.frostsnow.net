@@ -22,6 +22,54 @@ This page contains links to writings about topics such as technology, video game
 % X.509
 % Facebook targeting children
 
+% 4.9-4.14 Kernel Upgrade USB Woes
+\section{2018-01-08 4.9-4.14 Kernel Upgrade USB Woes}
+Given the recent concerns over the Meltdown/Spectre vulnerabilities and the release of \htmladdnormallink{new stable kernels}{https://lwn.net/Articles/743246/}, I figured that now would be a good time to do a quick kernel upgrade.  As you have probably surmised by the very existence of this blog post, the "quick" upgrade turned into a bit of a headache.
+
+Rather than using another 4.9 kernel with a backported mitigation, I decided that now would be a good time to upgrade to the newer 4.14 kernel.  The usual process went smoothly: downloading, verifying the signature, updating the configuration, compiling, and finally booting.  Except there was one little problem after booting: I couldn't enter my passphrase from my keyboard in order to decrypt the root filesystem.  Huh?  The keyboard, which is a USB keyboard, had worked before the BIOS hand-off, and it still had power, but no key-presses, even SysRq keys, had any effect.  Other than that, the kernel seemed perfectly fine, no backtraces or nasty error messages being spewed out.
+
+Okay, well, at this point I was rather dumbfounded.  Nothing in the output of \texttt{make oldconfig} that I could recall suggested something that would break my USB keyboard, and the only thing that I really cared about in this upgrade was the new Kernel Page-Table Isolation (KPTI) feature, but maybe this was some weird bug with it and my \texttt{initramfs}, so I tried disabling it, recompiling the kernel, and booting the recompiled kernel.  Still broken.  So, at least the security feature that I'd upgraded for wasn't the source of my woes, but that didn't solve my problem.  At this point it also occurred to me that no messages for the attached USB storage device were showing up, either, so this was some kind of USB problem.  Perhaps the problem was specific to the front ports?  I decided to try the back ports, which are attached directly to the motherboard, and did not have any luck there, either.
+
+Perhaps I'd missed something when updating the configuration, so I saved my new configuration and re-ran \texttt{make oldconfig} on a copy of the old configuration and noted any options that \textit{might possibly} be affecting my USB devices.  A few possibilities emerged, including \texttt{X86_MCELOG_LEGACY} (the \texttt{initramfs} is rather old), \texttt{SERIAL_DEV_BUS} (are the USB devices connected to the motherboard via serial?), \texttt{RC_CORE} (uhh do I have video capture?), \texttt{USB_PCI}, and \texttt{USB_HUB_USB251XB}.  The latter two options seemed the most suspicious.  The help information for \texttt{USB_PCI} reads:
+\begin{quote}
+\begin{verbatim}
+	A lot of embeded system SOC (e.g. freescale T2080) have both
+	PCI and USB modules. But USB module is controlled by registers
+	directly, it have no relationship with PCI module.
+
+	When say N here it will not build PCI related code in USB driver.
+\end{verbatim}
+\end{quote}
+English is obviously not their native language, but code isn't mine, so fair's fair.  It sounds like there's PCI code in the USB module for\ldots~no reason?  Well, I don't have any USB hubs connected via PCI add-on cards, so this should be safe left disabled.  Regarding \texttt{USB_HUB_USB251XB}, perhaps some hub-specific code got moved into a separate option and I happen to be using that hub.
+
+No clear winner emerged, so I opened the case in order to examine how the USB ports were connected and what hubs were in use:
+\begin{figure}
+\includegraphics[scale=0.5]{files/blog/2018_01_08_kernel_upgrade_usb_woes/motherboard.png}
+\caption{"Can you find the PCI USB on this motherboard?  Neither could we."}
+\end{figure}
+The back ports are directly connected to the motherboard, and the front ports are connected by some\ldots~thing to the motherboard.  I have no idea how components on the motherboard are interconnected (I2C?, serial?, gnomes?), but the USB hubs are certainly not connected via PCI cards, and I couldn't find any "USB251XB" markings on or around the hubs, not that I could particularly make out the small, cryptic writings on the board anyhow.  After blowing out some dust and a couple of sneezes later I went back to scratching my head.  Perhaps \texttt{make oldconfig} didn't tell me everything.  I decided to run a \texttt{diff -u} in-between the old and new configuration, and one line in particular caught my eye:
+\begin{quote}
+\begin{verbatim}
+	-CONFIG_USB_UHCI_HCD=y
+\end{verbatim}
+\end{quote}
+Now I cannot for the life of me remember what each of the \texttt{_HCI} USB configurations refer to what vendor/version combination, but this seemed like a \textit{very} strange omission.  Going into \texttt{menuconfig} and searching for the option was even more telling:
+\begin{quote}
+\begin{verbatim}
+	Prompt: UHCI HCD (most Intel and VIA) support
+\end{verbatim}
+\end{quote}
+"most Intel", eh?  So why was this option magically unselected?
+\begin{quote}
+\begin{verbatim}
+	Depends on: USB_SUPPORT [=y] && USB [=y] && (USB_PCI [=n] || USB_UHCI_SUPPORT_NON_PCI_HC [=n])
+\end{verbatim}
+\end{quote}
+Right, so, disabling the new \texttt{USB_PCI} option will \textit{silently} disable \texttt{USB_UHCI_HCD} \textit{even if it was already selected}.  Could this be my problem?  I enabled both \texttt{USB_PCI} and \texttt{USB_UHCI_HCD}, recompiled, booted, and, lo and behold, my USB devices started working again.
+
+So much for a "quick" upgrade.  While I'm glad to have things working again, it would have been nice if the \texttt{USB_PCI} help had clarified that whether or not PCI code is needed in the USB module \textit{depends on the system}, because the current wording suggests that it \textit{never} has any relationship to the PCI module ("it have no relationship with PCI module", said without qualifications).  Something along the lines of, "in these embedded systems, the USB module has no relationship to the PCI module" would have been better.  It also would have been nice if the \texttt{USB_UHCI_HCD} options wasn't silently disabled, but that may be a limitation of the Kconfig language; I don't know.  At least things are working again\ldots~at least until the other cache vulnerabilities start being exploited \texttt{;)}.
+
+
 % Booting BeagleBone Black With an Initramfs
 \section{2017-10-05 Booting BeagleBone Black With an Initramfs}
 \begin{center}
