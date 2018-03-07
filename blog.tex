@@ -22,6 +22,82 @@ This page contains links to writings about topics such as technology, video game
 % X.509
 % Facebook targeting children
 
+% Verifying X.509 Peer Certificate Strength
+\section{2018-03-05 Verifying X.509 Peer Certificate Strength}
+The X.509 certificates of the SSL/TLS protocol contain cryptographically-secure data, but only if the cryptographic algorithms are of sufficient strength to secure that data.  Most Certificate Authorities (CAs) that issue certificates choose relatively "weak" algorithms in order to bean-count compute cycles rather than provide extra security (for example, SHA-256 instead of SHA-512).  In addition, trying to clairvoyantly guess algorithm deprecation times by setting expiration dates on the certificate is either dangerous in the case of a lengthy expiration date, or irritating in the case of a short expiration date.  Alternatively, revoking individual, insecure certificates is tedious at best.  Rather than trust CAs, rely on expiration dates, or revoke certificates, I decided instead to implement server-side checks of client certificate strength on my InspIRCd server; specifically, I implemented checks for the public key size and signature algorithms used in the certificates.  This blog entry details the \strikeout{hacks} methods I used in implementing the checks.
+
+\subsection{OpenSSL Data Structure Primer}
+First, a few notes on some of the data structures used in OpenSSL.  An \texttt{SSL_CTX} object is basically a factory for individual SSL connections which are then represented by \texttt{SSL} objects.  X.509 certificates are represented by, intuitively enough, \texttt{X509} structures.  Ciphers, hashes, and keys are represented by a set of abstract interfaces prefixed with \texttt{EVP} (\htmladdnormallink{EnVeloPe}{https://stackoverflow.com/questions/3055454/what-does-openssls-evp-mean}), thus the \texttt{EVP_PKEY} interface can be used to access the public key of a certificate; the other interfaces were not relevant to me.
+
+\subsection{ASN.1 Primer}
+X.509 makes use of an, in my opinion, labyrinthian, standard known as Abstract Syntax Notation One (ASN.1).  A full description is outside the scope of both this article and my mortal understanding; however, it has some very useful properties that I was able to make use of.  ASN.1 objects, at least in OpenSSL, have a Numeric ID (NID), Short Name (SN), and Long Name (LN), and OpenSSL provides an API that easily translates between these.  The function \texttt{OBJ_txt2nid()} translates the specified string, which can be either a Short Name or a Long Name, to a NID while the \texttt{OBJ_nid2ln()} and \texttt{OBJ_nid2sn()} functions can turn the specified NID into either a Long Name or a Short Name, respectively.  The relevant object definitions can be found within your system include directory (assuming development headers are installed) under \texttt{openssl/obj_macs.h}.
+
+These translation functions made it possible for me to translate from arbitrary user-defined strings in a configuration file to relevant OpenSSL objects, without having to write some unmaintainable kludge that maps configuration options to objects.  Note, however, that not all the names were exactly what I expected.  For example, \texttt{rsa} and \texttt{rsaEncryption} refer to two \emph{different} objects.  A \htmladdnormallink{thorough Internet search}{https://stackoverflow.com/questions/15106201/difference-between-evp-pkey-rsa-and-evp-pkey-rsa2-in-openssl} reveals that the two objects are used in different contexts; sadly, the question's answer doesn't seem to be quite correct as I was getting an \texttt{rsaEncryption} object from an X.509 certificate despite the answer stating it was for PKCS1 objects.  The naming thus seems rather idiosyncratic, but rolling with it seems to work well enough.
+
+\subsection{Implementation}
+The first step was to get the \texttt{SSL} object for the connection; this was provided to me by the program.  Likewise, the program then called \texttt{SSL_get_peer_certificate()} on the \texttt{SSL} object in order to get the client's certificate (note that, in this context, the \emph{client} is the \emph{peer} of the server, as the client is on the other side of the connection) as an \texttt{X509*} object.  From here the methods to verify the key size and to verify the signature algorithm on the certificate diverged.
+
+\subsubsection{Verifying the Key Size}
+In order to verify the key size, the first step was to get the public key from the \texttt{X509*} object by using the \texttt{X509_get_pubkey()} function.  The next step was to get the type of the public key before comparing it to the respective minimum size for that key type (or failing if the key type was not found); this was be done by calling \texttt{EVP_PKEY_id()} in order to return the type as a NID (note that the \texttt{EVP_PKEY_RSA} family of macros, which are used to identify key types, are actually defined based on their respective NIDs).  Versions of OpenSSL prior to the 1.1 series allow accessing the \texttt{type} member of the \texttt{EVP_PKEY} object directly, and confusingly enough, the \texttt{EVP_PKEY_type()} function serves an entirely different purpose than returning the key type as a NID, thus \texttt{EVP_PKEY_id()} had to be used.  After the key type had been retrieved the size of the key was retrieved via the \texttt{EVP_PKEY_bits()} function, which returned the key size in bits. Confusingly enough, there is also an \texttt{EVP_PKEY_size()} function which serves a different purpose; it returns, in bytes, the maximum size of a signature that can be created by the specified key and is meant to be used when allocating memory, but that number, depending on key type, may have \emph{nothing} to do with key size, so I had to use \texttt{EVP_PKEY_bits()} instead.  Thus, using \texttt{EVP_PKEY_id()} and \texttt{EVP_PKEY_bits()}, I was able to verify key type and size.
+
+\subsubsection{Verifying the Signature Algorithm}
+Verifying the certificate signature algorithm was much more straightforward than verifying the key type and size.  Getting the signature algorithm NID can be done by simply calling \texttt{X509_get_signature_nid()}.  That's it.  No weird gotchas like in the previous subsection.  Phew.
+
+\subsubsection{Verifying a Chain of Peer Certificates}
+Astute readers may have noticed the \emph{singular} form of \texttt{SSL_get_peer_certificate()}, which is a problem, as the client may in fact present multiple certificates in the form of a certificate \emph{chain} to the server, and it would be silly to check only one of the certificates in the chain for proper strength.  Thankfully, the function \texttt{SSL_get_peer_cert_chain()} can be used to retrieve the \emph{other} certificates (but not the last certificate, the one returned by \texttt{SSL_get_peer_certificate()}) in the chain as a \texttt{STACK_OF(X509)*} objects that can be iterated through and checked one-by-one for meeting proper strength requirements (use of OpenSSL's \texttt{STACK_OF} API is outside the scope of this document).
+
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tikzpicture}
+	% Styles.
+	[s-cert/.style={rectangle,draw=green!60!black,minimum height=1cm,minimum width=1.5cm},
+	c-cert/.style={rectangle,draw=orange,minimum height=1cm, minimum width=1.5cm}]
+	% Certificate chain.
+	\node (A) at (0, 0) [s-cert] {A};
+	\node (B) [below=of A] [c-cert] {B};
+	\node (C) [below=of B] [c-cert] {C};
+	\draw[-Stealth] (A) -- (B)
+		node[pos=0.5](a-cfies){};
+	\node (a-cfies-txt) [right=of a-cfies] {Certifies};
+	\draw[-Stealth] (a-cfies-txt) -- (a-cfies);
+	\draw[-Stealth] (B) -- (C)
+		node[pos=0.5](b-cfies){};
+	\node (b-cfies-txt) [right=of b-cfies] {Certifies};
+	\draw[-Stealth] (b-cfies-txt) -- (b-cfies);
+	\node (txt) at (A) [above=0.5cm] {Cert.\ Chain};
+	% Server certificates.
+	\node (S-tmp) [right=of C] {};
+	\node (S-A) [right=of S-tmp,s-cert] {A};
+	\node (S-txt) at (S-A) [above=0.5cm] {Server Has};
+	% Client certificates.
+	\node (C-B) [right=of S-A,c-cert] {B};
+	\node (C-C) at (C-B) [above=0.7cm,c-cert] {C};
+	\node (C-txt) at (C-C) [above=0.5cm] {Client Sends};
+	% Legend.
+	\node (lanchor) at ($(current bounding box.south east) + (2, 0)$) {};
+	\node (legend) at (lanchor) [above=1.1cm] {Legend};
+	\node (l1) at (lanchor) [above=0.6cm,draw=green!60!black] {Server Cert.};
+	\node (l2) at (lanchor) [above=0.0cm,draw=orange] {Client Cert.};
+	\node [rectangle,draw,fit=(legend) (l1) (l2)] {};
+\end{tikzpicture}
+}
+\end{makeimage}
+\caption{Certificate chain where \texttt{A} is a trusted CA of the server and the client must send its certificate \texttt{C} followed by the intermediate certificate \texttt{B}.}
+\end{figure}
+\end{center}
+After implementing a check for the entire peer certificate chain, my next problem was testing verification of the chain.  Consider the chain A -> B -> C, where A is trusted by the server and B and C are sent by the client.  I had been using OpenSSL's \texttt{s_client} command for testing, so the obvious approach was to place B and C into the file passed via the \texttt{-cert} argument; the first problem with this approach was that the certificates must be in a certain \emph{order}, specifically, the sender's certificate must come \emph{first}, followed by the certificate certifying the sender's certificate, and so on (see \htmladdnormallink{the RFC}{https://tools.ietf.org/html/rfc5246#section-7.4.2}).  In this case that meant sending C followed by B; specifying the certificates in the wrong order (B followed by C) was obvious, because \texttt{s_client} tried to use C's private key to verify B, which, of course, failed.  Putting them in the correct order, however, sent C while silently ignoring B.  After much gnashing of teeth, I decided to look into the source code, and, while combing through the parsing of the \texttt{-cert} option noticed an \emph{undocumented} (yes, not even in the \texttt{man} pages nor \texttt{-help} output) \texttt{-cert_chain} option.  After looking into it I ran the \texttt{s_client} command again with C sent via the \texttt{-cert} option and B sent via the \texttt{-cert_chain} option and was able to actually send a certificate chain to the server, and sanity was once again restored to my life.
+
+\subsubsection{Testing}
+Manually verifying changes is both a pain and error-prone, so I created a \htmladdnormallink{bash script}{https://github.com/clinew/inspircdtests/blob/master/ssl_strongcert.sh} in order to automatically test strong cert verification for InspIRCd on my system.  The tests check that the program runs without strong verification enabled, then turns verification on and checks that users can connect when their certificates use proper key type+sizes and algorithms, then checks that errors occur when invalid configuration options (such as non-existent algorithms) are specified, then finally checks that verification works correctly when the client passes a \emph{chain} of certificates.  It's not particularly exciting, but it gives peace of mind when rebasing on top of the latest stable release and when porting to newer versions of both OpenSSL and InspIRCd.
+
+\subsection{Future Work}
+After adding this feature I managed to find a series of functions that appeared as if they might do my heavy lifting for me.  The functions, found under the include directory as \texttt{ssl/ssl.h} were \texttt{SSL_set1_sigalgs_list()}, \texttt{SSL_set1_client_sigalgs_list()}, and a few similar variations.  Sadly, testing these show that they do not actually have the same functionality, although the signature algorithm list displayed after connecting via \texttt{s_client} was indeed different; presumably the signature algorithm is for session negation rather than peer certificate verification, but I am not yet sure as I have not yet Read The "Friendly" \strikeout{Manual} RFC.
+
+The online man pages for the function also mentioned an \texttt{SSL_CONF} API, which might make option parsing easier; regardless, I didn't use it this time.
+
+
 % Better Browsing With Firefox
 \section{2018-01-17 Better Browsing With Firefox}
 The Web is not what it once was, or at least not how I remember it.  It used to be like browsing a catalogue, with each link analogous to turning to a new page.  But the Web has transformed into something else entirely.  It is more like a \htmladdnormallink{two-way black mirror}{https://freedom-to-tinker.com/2017/11/15/no-boundaries-exfiltration-of-personal-data-by-session-replay-scripts} than a catalogue.  Every keystroke and mouse movement is logged and analyzed.  Users are tracked across unrelated websites by both visible widgets, invisible cookies, and more \htmladdnormallink{nefarious means}{https://en.wikipedia.org/wiki/Web_beacon}.  So-called "social media" sites analyze this data and censor their feeds in order to feed both themselves and their sponsors as much money as possible.  Basically, the Web has become a platform that consumes the user, rather than the user consuming the content of the Web.
