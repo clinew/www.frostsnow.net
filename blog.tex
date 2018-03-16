@@ -22,6 +22,36 @@ This page contains links to writings about topics such as technology, video game
 % X.509
 % Facebook targeting children
 
+
+% Recycling in Hillsboro
+\section{2018-03-15 Recycling in Hillsboro}
+It must be my Eugene-hippy roots, but I feel compelled to recycle and/or reuse whatever I can.  Although I've mostly got this down to a science on a day-to-day basis, the long passage of time inevitably wears down long-lasting items whose disposal methods I am unfamiliar with.  Trying to figure out what to do with these items, despite the honest, hard work of various environmental groups is still a pain.  This blog chronicles my latest adventure in responsibly disposing of old junk.
+
+\subsection{Fabrics}
+\begin{figure}
+\includegraphics{files/blog/2018_03_15_recycling_in_hillsboro/2018_03_15_clothing.png}
+\caption{Beaten-up fabrics, not even useful for donations.}
+\end{figure}
+Though I'm slowly learning to sew, there's only so much that I can sew and only so much that can be sewn, thus I had to find a way to dispose of some old clothes and bed sheets.  Normally old clothes can be given to stores like Goodwill, but these were too beaten up even for that.  Apparently, Goodwill used to take beaten-up clothing, but that is probably \htmladdnormallink{no longer}{https://earth911.com/living-well-being/style/donate-worn-damaged-clothing/} the case.  One good suggestion that I got from some \htmladdnormallink{serious, academic research}{https://duckduckgo.com/html/} was to donate beaten-up clothing to an animal shelter; alas, my local shelter \htmladdnormallink{does not}{https://www.co.washington.or.us/HHS/AnimalServices/Donations/wishlist.cfm} appear to accept such clothing.  Now, despite having seen clothing donation bins around I didn't recall any of their locations and kept getting search results for donation bins in the UK, and it wasn't clear to me, even if I did find one, whether or not they wanted the clothing to be in good condition or not.
+
+At this point I was rather stumped and ended up asking some friends about potential solutions, and one of them pointed me to \htmladdnormallink{H&M's recycling program}{https://about.hm.com/en/sustainability/get-involved/recycle-your-clothes.html}.  Thankfully they take beaten-up clothing and can recycle it into things like insulation, which is exactly what I was looking for; they also give you an in-store coupon for doing so!  Although I was able to give them both my bedding and old clothes, they did not have any need for my belt, but, as luck would have it, I managed to pass a clothing donation bin and get the organization name to look up at home.  The name that I got was "Gemtext Portland", and it appears that they would also have recycled beaten-up clothing in addition to taking my belt.  Now I just have to find the time to run back to the bin with belt in tow\ldots
+
+\subsection{XBox 360}
+I don't think I've ever owned nor heard about a more fragile system than the 360.  Mine died after about 2.5 years of use, which, given what I'd heard, seemed pretty good to me.  After it's death, however, it wasn't clear to me whether or not buying a new one would be worth it as it, too, would likely die in another couple of years.  I put off making a decision or trying to repair it for many years, in which time I've moved away from Micro\$oft as a company and off of consoles and onto PCs (running GNU/Linux) for gaming.  Now the XBone is out, and buying a new 360 or trying to repair it just seems absurd when I'd rather play games on my PC, thus some pawning was in order.
+
+I did, of course, try and find a local game store to pawn at first.  \htmladdnormallink{GameStar}{http://www.gamestarinc.net/buylist}, however, was only interested in older-generation games and "Magic: The Gathering" cards, thus GameStop was the obvious next option.  I was able to pawn off my games, controller, and misc. connectors, but not the red-ringed box itself nor the small headset it came with; they would have to join the other broken electronics of mine.
+
+\subsection{Electronics}
+\begin{figure}
+\includegraphics{files/blog/2018_03_15_recycling_in_hillsboro/2018_03_15_electronics.png}
+\caption{Broken electronics, not acceptable under Oregon E-Cycles.}
+\end{figure}
+One might think that disposing of used electronics would be easy, given the concern over electronic waste and possibility of extracting precious metals from the used goods; alas, things turn out to be a bit more complicated.  The Oregon E-Cycles program bans the disposal of computers, monitors, and TVs, and there are a number of locations such as my \htmladdnormallink{local landfill}{http://wmnorthwest.com/landfill/hillsboro2.htm} which will accept these items, however, this does not cover the misc. peripherals such as headsets and USB sticks that inevitably break and must also be disposed.  Thankfully there is a company called Far West Recycling with a location in Hillsboro that, at the time of this writing, at least, \htmladdnormallink{does}{http://www.farwestrecycling.com/materials/electronics-recycling} accept such items, including my red-ringed 360.  Thus I was able to dispose of my used electronics there, and I also spotted another Gemtext Portland clothing donation bin for future use, how convenient!
+
+\subsection{Conclusion}
+Now, having finally responsibly disposed of a good amount of my junk I can finally rela-- oh damnit I forgot the burnt-out light bulb.
+
+
 % Verifying X.509 Peer Certificate Strength
 \section{2018-03-05 Verifying X.509 Peer Certificate Strength}
 The X.509 certificates of the SSL/TLS protocol contain cryptographically-secure data, but only if the cryptographic algorithms are of sufficient strength to secure that data.  Most Certificate Authorities (CAs) that issue certificates choose relatively "weak" algorithms in order to bean-count compute cycles rather than provide extra security (for example, SHA-256 instead of SHA-512).  In addition, trying to clairvoyantly guess algorithm deprecation times by setting expiration dates on the certificate is either dangerous in the case of a lengthy expiration date, or irritating in the case of a short expiration date.  Alternatively, revoking individual, insecure certificates is tedious at best.  Rather than trust CAs, rely on expiration dates, or revoke certificates, I decided instead to implement server-side checks of client certificate strength on my InspIRCd server; specifically, I implemented checks for the public key size and signature algorithms used in the certificates.  This blog entry details the \strikeout{hacks} methods I used in implementing the checks.
