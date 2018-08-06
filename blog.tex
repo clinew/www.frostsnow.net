@@ -22,6 +22,116 @@ This page contains links to writings about topics such as technology, video game
 % X.509
 % Facebook targeting children
 
+\section{2018-08-05 Logging OpenSSL Connections}
+Unfortunately for me, using client certificates for authentication left my IRC service without any meaningful logging, as most of the per-user log messages in InspIRCd assumed that the client would make it past certificate verification.  Since this is a rather esoteric feature, it was up to me to write the code that would enable this; in fact, I'd written a \htmladdnormallink{patch}{https://github.com/clinew/inspircd} for this over a year ago, but had neglected what would happen in the rare event that the client presented a \emph{chain} of certificates rather than just a single certificate, thus I had to revisit my old patch and extend its functionality.  This required gathering some data in order to determine what a good log message might look like, actually implementing the code, and, of course, finding some unexpected functionality along the way.
+
+\subsection{Gathering Data}
+When in doubt it's usually a good idea to copy those who came before you, or at least get an idea of what they've done.  In this case I decided to use the output from the OpenSSL \texttt{s_client} and \texttt{s_server} commands in order to see what might be worth logging.  One problem I ran into is that \texttt{s_server} would silently fail to listen for connections because I had disabled IPv6 and needed to specify the \texttt{-4} option in order to use only IPv4; furthermore, it turns out that \texttt{s_server} \emph{also} uses the hidden \texttt{-cert_chain} option mentioned in a \htmlref{previous}{2018-03-05-cert-chain} blog post.  Amusingly enough, the output from \texttt{s_server} was worthless; \texttt{s_client}, however, did provide useful output, as shown in the following sample:
+
+\begin{quote}
+\begin{verbatim}
+	 0 s:/CN=a
+	   i:/CN=a
+	 1 s:/CN=b
+	   i:/CN=a
+\end{verbatim}
+\end{quote}
+
+The output shows two certificates with their \emph{Distinguished Name} (DN), in this example consisting only of the \emph{Common Name} (denoted '\texttt{CN}'), for both the \emph{Subject} (denoted '\texttt{s}') and \emph{Issuer} (denoted '\texttt{i}') of the respective certificate; it shows how in this example Certificate Authority (CA) \texttt{A} signed client certificate \texttt{B}.  Checking out the source for \texttt{s_client} showed the following code at work in \texttt{apps/s_client.c}:
+
+\begin{quote}
+\begin{verbatim}
+        sk = SSL_get_peer_cert_chain(s);
+        if (sk != NULL) {
+            got_a_chain = 1;    /* we don't have it for SSL2 (yet) */
+
+            BIO_printf(bio, "---\nCertificate chain\n");
+            for (i = 0; i < sk_X509_num(sk); i++) {
+                X509_NAME_oneline(X509_get_subject_name(sk_X509_value(sk, i)),
+                                  buf, sizeof buf);
+                BIO_printf(bio, "%2d s:%s\n", i, buf);
+                X509_NAME_oneline(X509_get_issuer_name(sk_X509_value(sk, i)),
+                                  buf, sizeof buf);
+                BIO_printf(bio, "   i:%s\n", buf);
+                if (c_showcerts)
+                    PEM_write_bio_X509(bio, sk_X509_value(sk, i));
+            }
+\end{verbatim}
+\end{quote}
+
+This code, simple enough, detailed what functions would be necessary for my own needs.
+
+\subsection{Implementing}
+Connections needed to be logged in one of two places: during the handshake or during certificate validation in the case that the former succeeded.
+
+\subsubsection{Logging the Handshake}
+Error-checking in OpenSSL is rather tricky and weird.  Errors are stored on a \emph{stack} of errors that need to be cleared before calling the function that needs to be error-checked, thus the first function to invoke was \texttt{ERR_clear_error()}.  After this I could then call the actual handshaking function \texttt{SSL_do_handshake()}, but what to do next depends on the return value from that function, of which there are three distinct possibilities, made more complicated by the fact that blocking and non-blocking IO need to be treated differently.  If the return value is less than zero and one is using non-blocking IO then one needs to run \texttt{SSL_get_error()} and check for either \texttt{SSL_ERROR_WANT_READ} or \texttt{SSL_ERROR_WANT_WRITE} and then handle them as appropriate, otherwise there has been an error that needs to be logged; likewise, if the return value is zero then an error needed to be logged.  Finally, if the return value is greater than zero then one can move onto logging client certificates without worrying about logging connection success.  When logging an error, it's not clear to me whether it makes more sense to use \texttt{ERR_get_error()} or \texttt{SSL_get_error()} at this point; the former is more general than the latter, so I've been using it and it seems to be working fine.  Once I had gotten through the return value maze and gotten an error number I could then convert it into a human-readable string by a call to \texttt{ERR_error_string()} and then finally log it.  Example output from logged connection failures is as follows:
+
+\begin{quote}
+\begin{verbatim}
+	OpenSSL handshake error 'error:1408A0C1:SSL routines:ssl3_get_client_hello:no shared cipher' for '71.6.146.185' port '6697'
+	OpenSSL handshake error 'error:140760FC:SSL routines:SSL23_GET_CLIENT_HELLO:unknown protocol' for '71.6.146.185' port '6697'
+	OpenSSL handshake error 'error:1408A10B:SSL routines:ssl3_get_client_hello:wrong version number' for '71.6.146.185' port '6697'
+	OpenSSL handshake error 'error:1408A0C1:SSL routines:ssl3_get_client_hello:no shared cipher' for '71.6.146.185' port '6697'
+\end{verbatim}
+\end{quote}
+
+The string returned by \texttt{ERR_error_string()} is the first single-quoted string in each of the above lines.  With logging connection failures out of the way I could then move onto logging certificate verification.
+
+\subsubsection{Checking the Certificate}
+Before printing the certificate chain I prefer to print any certificate validation errors.  In the OpenSSL 1.0.1 series this required an initial call to \texttt{ERR_load_X509_strings()} in order to load the error strings, but does not appear to be relevant to the 1.1.0 series.  Once the error strings had been loaded I could then use \texttt{SSL_get_peer_certificate()} in order to see if a certificate was actually presented by the peer; I obviously cannot validate what is not there.  Next I called \texttt{SSL_get_verify_result()} which returns \texttt{X509_V_OK} if the peer certificate is valid, otherwise it will return a value that can be passed to \texttt{X509_verify_cert_error_string()} in order to return a human-readable error string; some example error strings include:
+
+\begin{quote}
+\begin{verbatim}
+	unable to verify the first certificate
+	certificate revoked
+\end{verbatim}
+\end{quote}
+
+Notice that the errors don't always make the situation clear, but they are far better than nothing.
+
+Logging the peer certificate chain was slightly more involved than in the \texttt{s_client} code; this is because, in server mode, \texttt{SSL_get_peer_cert_chain()} does not present the peer certificate and thus a separate call to \texttt{SSL_get_peer_certificate()} is necessary. It also may not be immediately apparent how to use the strange \texttt{STACK_OF(X509*)} object returned by the function; the \texttt{STACK_OF} object is a special data type defined in OpenSSL via macros that allows access of OpenSSL objects through a, well, stack abstraction for that specific type, perhaps analogous to a C++ template, though I am no C++ aficionado.  In the \texttt{STACK_OF(X509*)} case this meant using the functions \texttt{sk_509_num()} and \texttt{sk_509_value()} to return the length of the stack and the value in the stack, respectively.  Once the certificate had been obtained I could call \texttt{X509_get_subject_name()} and \texttt{X509_get_issuer_name()} to return the subject and issuer names, respectively, followed by \texttt{X509_NAME_oneline()} to turn it into human-readable ASCII text.  Doing that for each certificate gave me enough information to log the peer's certificate chain.
+
+\subsection{Idiosyncrasies and Miscellaneous}
+An interesting quirk I noticed when running my tests with \texttt{s_client} is that in certain circumstances OpenSSL appeared to automatically append the root certificate to the client certificate when sending its certificates to the server (though you shouldn't use the same certificate for signing and encryption).  For example, the command \texttt{openssl s_client -verify_return_error -cert leaf_ca/certs/leaf_ca.pem -key leaf_ca/private/leaf_ca.pem -connect 127.0.0.1:6697 -ign_eof} produced the output:
+
+\begin{quote}
+\begin{verbatim}
+	Valid peer certificate chain from '127.0.0.1' port '6697':
+	 0 s:/CN=leaf_ca
+	   i:/CN=root_ca
+\end{verbatim}
+\end{quote}
+
+\ldots while the same command with the Certificate Authority specified via \texttt{CAfile}, specifically, \texttt{openssl s_client -verify_return_error -CAfile root_ca/certs/root_ca.pem -cert leaf_ca/certs/leaf_ca.pem -key leaf_ca/private/leaf_ca.pem -connect 127.0.0.1:6697 -ign_eof} produced the output:
+
+\begin{quote}
+\begin{verbatim}
+	Valid peer certificate chain from '127.0.0.1' port '6697':
+	 0 s:/CN=leaf_ca
+	   i:/CN=root_ca
+	 1 s:/CN=root_ca
+	   i:/CN=root_ca
+\end{verbatim}
+\end{quote}
+
+Even stranger, this did not happen with the chain of trust \texttt{A -> B -> C} and the client passing certificates \texttt{B} and \texttt{C} via \texttt{openssl s_client -verify_return_error -CAfile a/certs/a.pem -cert c/certs/c.pem -key c/private/c.pem -cert_chain b/certs/b.pem -connect 127.0.0.1:6697 -ign_eof}:
+
+\begin{quote}
+\begin{verbatim}
+	Valid peer certificate chain from '127.0.0.1' port '6697':
+	 0 s:/CN=c
+	   i:/CN=b
+	 1 s:/CN=b
+	   i:/CN=a
+\end{verbatim}
+\end{quote}
+
+There doesn't appear to be any harm in this behavior as far as I can tell, but it is rather odd.
+
+Slightly more annoying for me is how sending a certificate chain isn't cooperating with Certificate Revocation Lists (CRLs) in a way that I'd like.  As mentioned in a \htmlref{previous}{2017-09-22-missing-crls} blog post about CRLs, each certificate authority must have a CRL, even if it hasn't revoked any certificates.  Well, this logic \emph{also} applies when the client sends the CA in a chain, even if the server trusts said CA, thus a trust chain of \texttt{A -> B -> C} where the server has \texttt{A} and the client sends \texttt{B -> C} will fail unless the client sends a CRL for \texttt{B}.  The problem is that I have no idea how to add \texttt{B}'s CRL into the client's certificate chain.  Perhaps I'll find out with more digging, perhaps it's not currently possible.  At least I got the logging working, though.
+
+
 % Pillars of Eternity: Path of the Damned, Act I
 \section{2018-06-16 Pillars of Eternity: Path of the Damned, Act I}
 \htmladdnormallink{Pillars of Eternity (PoE) II}{https://www.youtube.com/watch?v=EXYDsp7BnFo} is out, but I had determined before then that I'd like to beat the original game on the hardest difficulty (called the "Path of the Damned"), as I find mastering a video game to be quite satisfying, especially one as enjoyable and challenging as Pillars.  Now, Pillars may not be \htmladdnormallink{Free Software}{https://www.gnu.org/philosophy/free-sw.en.html}, but it does run natively on GNU/Linux and I still enjoy my video games too much to give them up, and it's not like Obsidian, PoE's developers, have done any kind of noteworthy evil.  Thus I intend to enjoy my copy of an immersive, challenging, fantasy-based Role Playing Game (RPG) to the fullest extent possible.
@@ -67,7 +177,6 @@ Once I'd cleared these areas it was time to proceed to the big, bad dude, Raedri
 \begin{figure}
 \includegraphics[scale=0.33]{files/blog/2018_06_16_pillars_of_eternity_path_of_the_damned_act_i/2018_06_16_grammar.jpg}
 \end{figure}
-
 
 \subsection{Raedric's Hold}
 While Raedric may be the first proper boss fight of the game, there are a few mini-bosses of note, and a few tough battles if you choose to engage in them.  Personally, I like clearing out the entire keep in order to acquire their loot (the kith do not provide experience), thus I engaged in all of the fights.  The path that I choose was: dungeons, top floor, ground floor, outside guards.
@@ -405,7 +514,7 @@ In order to verify the key size, the first step was to get the public key from t
 Verifying the certificate signature algorithm was much more straightforward than verifying the key type and size.  Getting the signature algorithm NID can be done by simply calling \texttt{X509_get_signature_nid()}.  That's it.  No weird gotchas like in the previous subsection.  Phew.
 
 \subsubsection{Verifying a Chain of Peer Certificates}
-Astute readers may have noticed the \emph{singular} form of \texttt{SSL_get_peer_certificate()}, which is a problem, as the client may in fact present multiple certificates in the form of a certificate \emph{chain} to the server, and it would be silly to check only one of the certificates in the chain for proper strength.  Thankfully, the function \texttt{SSL_get_peer_cert_chain()} can be used to retrieve the \emph{other} certificates (but not the last certificate, the one returned by \texttt{SSL_get_peer_certificate()}) in the chain as a \texttt{STACK_OF(X509)*} objects that can be iterated through and checked one-by-one for meeting proper strength requirements (use of OpenSSL's \texttt{STACK_OF} API is outside the scope of this document).
+Astute\label{2018-03-05-cert-chain} readers may have noticed the \emph{singular} form of \texttt{SSL_get_peer_certificate()}, which is a problem, as the client may in fact present multiple certificates in the form of a certificate \emph{chain} to the server, and it would be silly to check only one of the certificates in the chain for proper strength.  Thankfully, the function \texttt{SSL_get_peer_cert_chain()} can be used to retrieve the \emph{other} certificates (but not the last certificate, the one returned by \texttt{SSL_get_peer_certificate()}) in the chain as a \texttt{STACK_OF(X509)*} objects that can be iterated through and checked one-by-one for meeting proper strength requirements (use of OpenSSL's \texttt{STACK_OF} API is outside the scope of this document).
 
 \begin{center}
 \begin{figure}
@@ -708,7 +817,7 @@ This will load the CRL files, but will not enable CRL checking; this has to be d
 \ldots and that's it!  CRLs should now be enabled for your program.  However, do not rest easily just yet, as CRLs offer several pitfalls for the unwary, as detailed below.
 
 \subsection{Missing CRL Files}
-Consider the following, simple certificate chain:
+Consider\label{2017-09-22-missing-crls} the following, simple certificate chain:
 \begin{center}
 \begin{figure}
 \begin{makeimage}
