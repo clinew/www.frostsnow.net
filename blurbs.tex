@@ -1,4 +1,3 @@
-1:03:02
 \documentclass{article}
 
 \usepackage{html}
@@ -6,6 +5,15 @@
 \begin{document}
 
 Thoughts that are not worth their own blog.
+
+\subsection{2018-10-01}
+Managed to fix my XTerm display after the Gentoo \texttt{CHOST} change; the \texttt{.Xresources} file now doesn't like \\
+    \texttt{XTerm*background: black} \\
+    \texttt{XTerm*foreground: white} \\
+\ldots but does accept: \\
+    \texttt{xterm*background: black} \\
+    \texttt{xterm*background: white} \\
+Go figure.
 
 \subsection{2018-04-14}
 Noting: Google Voice requires \texttt{media.peerconnection.enabled} to be \texttt{true} in order to display data; likewise, Nextdoor requires \texttt{network.http.sendRefererHeader} to be greater than \texttt{0} in order to log in.
