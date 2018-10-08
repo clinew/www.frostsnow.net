@@ -22,6 +22,49 @@ This page contains links to writings about topics such as technology, video game
 % X.509
 % Facebook targeting children
 
+\section{2018-10-07 From Brainpool to Mindmush in OpenSSL}
+I have a series of \htmladdnormallink{tests}{https://github.com/clinew/inspircdtests} which attempt to connect to an SSL/TLS-enabled service; the tests use different types of cryptography: RSA, DSA, and EC.  When I began testing with the OpenSSL 1.1.0 series instead of the 1.0.1 series, the test which uses EC started to return an "unknown" result rather than "pass" or "fail".  Looking at the client output showed the following error message: \texttt{140379411924736:error:1409441A:SSL routines:ssl3_read_bytes:tlsv1 alert decode error:ssl/record/rec_layer_s3.c:1399:SSL alert number 50}; the server output wasn't particularly helpful: \texttt{SOCKET: Error on FD 8 - 'Read Error'}.
+
+This looked pretty bad, so I took some time to re-examine the test; it generates an elliptic curve using the \texttt{brainpoolP512t1} curve, which I selected through a rigorous process of running \texttt{openssl ecparam -list_curves} and then just picking one arbitrarily.  The certificate is then signed by the server's trusted root authority and then finally passed to the server by the client, at which point the protocol error occurs.  There didn't seem to be any particular wrongdoing on my end, so I filed a \htmladdnormallink{bug}{https://github.com/inspircd/inspircd/issues/1464} against the service.
+
+The maintainer got back to me pointing to a \htmladdnormallink{bug}{https://github.com/openssl/openssl/issues/6332} filed against OpenSSL in which the project's maintainer responded that it was not possible to use the \texttt{brainpoolP512t1} curve as it had not been assigned a number by the Internet Assigned Numbers Authority (IANA).  But, wait a second, it \emph{had} worked on the older, 1.0.1 series, and upon closer inspection, the filer was \emph{also} using the 1.0.1 series, \emph{and} their error messages were different than mine.  After digging a little deeper I realized that they were using EC for the \emph{server} certificate, while I was using it for the \emph{client}.  From the ticket I was able to reproduce their version of the issue on both the 1.0.1 series and the 1.1.0 series with the following commands:
+
+\begin{quote}
+\begin{verbatim}
+	openssl ecparam -out eckey.pem -name brainpoolP512t1 -genkey
+	openssl req -x509 -new -key eckey.pem -out eccert.pem -subj "/CN=EC-SHA512/"
+	openssl s_server -accept 415 -cert eccert.pem -key eckey.pem -4
+	openssl s_client -connect 127.0.0.1:415
+\end{verbatim}
+\end{quote}
+
+This did not, however, explain why I had \emph{ever} been able to connect using EC in the client certificate and my brain was starting to turn to mush trying to figure out what facts might cause such inconsistent behaviour.  Configuring the service was proving to be tricky and I wanted to test against a known-correct implementation, so I decided to see if I could reproduce the client error by the command-line OpenSSL utilities.  I began by generating keys and self-signed certificates:
+
+\begin{quote}
+\begin{verbatim}
+	openssl ecparam -out eckey.pem -name brainpoolP512t1 -genkey
+	openssl req -x509 -new -key eckey.pem -out eccert.pem -subj "/CN=EC-SHA512/"
+	openssl genrsa -out rsakey.pem 4096
+	openssl req -key rsakey.pem -new -x509 -days 7200 -sha512 -out rsacert.pem -subj '/CN=RSA/'
+\end{verbatim}
+\end{quote}
+
+\ldots then attempted to connect to the server while using EC in the client certificate:
+
+\begin{quote}
+\begin{verbatim}
+        openssl s_server -accept 415 -cert rsacert.pem -key rsakey.pem -4
+	openssl s_client -cert eccert.pem -key eckey.pem -connect 127.0.0.1:415
+\end{verbatim}
+\end{quote}
+
+To my great consternation, this worked on \emph{both} OpenSSL series.  After some colourful language and gnashing of teeth I took a look at the man page of \texttt{s_server} and found a \texttt{-verify} and \texttt{-verify_return_error} option, and, after making sure I had set the server's Certificate Authority properly via the \texttt{-CAfile eccert.pem} option, tried again and, finally, was able to reproduce the behaviour that occurred on the service: The EC client certificate would break on the OpenSSL 1.1.0 series with a protocol error but work in the 1.0.1 series.
+
+Since this behaviour was unexpected, I decided to ask the OpenSSL maintainers about it by filing an \htmladdnormallink{issue}{https://github.com/openssl/openssl/issues/7067} about it on their GitHub page.  I was informed that "\ldots implicit support for the 't' versions was removed \ldots" and that "\ldots If the curve does not have an IANA number, it cannot work in TLS".  Well, this doesn't quite explain to me how the curve \emph{ever} worked in the old series, but I didn't feel up to analyzing the protocol and source code in order to find out.  They also suggesting using the \texttt{-named_curve} and \texttt{-curves} flag, but neither option worked for me.
+
+As \texttt{brainpoolP512p1} was now clearly not portable, the next step was to try a different curve.  I chose the \texttt{brainpoolP512r1} curve mentioned in the first OpenSSL bug, and this worked for both series of the library.  Thus my noggin-melting problem was solved by changing a single character.  Perhaps in the future I'll be more leery of making arbitrary selections, but in this case a quick Internet search beforehand didn't reveal anything digestible, so probably not.
+
+
 \section{2018-08-05 Logging OpenSSL Connections}
 Unfortunately for me, using client certificates for authentication left my IRC service without any meaningful logging, as most of the per-user log messages in InspIRCd assumed that the client would make it past certificate verification.  Since this is a rather esoteric feature, it was up to me to write the code that would enable this; in fact, I'd written a \htmladdnormallink{patch}{https://github.com/clinew/inspircd} for this over a year ago, but had neglected what would happen in the rare event that the client presented a \emph{chain} of certificates rather than just a single certificate, thus I had to revisit my old patch and extend its functionality.  This required gathering some data in order to determine what a good log message might look like, actually implementing the code, and, of course, finding some unexpected functionality along the way.
 
