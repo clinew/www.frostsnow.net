@@ -25,7 +25,7 @@ tutor: tutor.tex
 	mkdir -p website/tutor
 	latex2html ${l2hflags} -split 2 -link 0 -dir website/tutor tutor.tex
 	cp files/1000_element_merge_sort.ps website/tutor/mergesort.ps
-	cp files/flyer.pdf website/tutor/flyer.pdf
+	#cp files/flyer.pdf website/tutor/flyer.pdf # Super-sekrit
 
 install: tidy
 	cp -rv website/* /var/www/localhost/htdocs/
