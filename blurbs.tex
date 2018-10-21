@@ -6,6 +6,9 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2018-10-20}
+Looks like \texttt{stunnel} 5.43 (or perhaps some slightly earlier version) now only binds to the loopback interface by default; as a result I had to change \texttt{accept = 874} to \texttt{accept = 0.0.0.0:874}.
+
 \subsection{2018-10-05}
 In a marvelous bit of \htmladdnormallink{Security Theater}{https://en.wikipedia.org/wiki/Security_theater}, Google Voice prevented me from signing in while in a different town, then, upon returning to my usual town, signing in, then telling Google that "Yes, this was me", tells me that, "For your security, we'll continue to show this alert in your Recent security events page." which means that, should someone else \emph{actually} try signing into my account I will not notice because I will assume that the warning is referring to the previous attempt which I have already marked as valid.  Can I disable this garbage, please?
 
