@@ -6,6 +6,9 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2018-10-21}
+Noting: In order to upgrade LibreCMC, run \texttt{scp image-sysupgrade.bin root@address:/tmp/} then \texttt{sysupgrade -v image-sysupgrade.bin}.
+
 \subsection{2018-10-20}
 Looks like \texttt{stunnel} 5.43 (or perhaps some slightly earlier version) now only binds to the loopback interface by default; as a result I had to change \texttt{accept = 874} to \texttt{accept = 0.0.0.0:874}.
 
