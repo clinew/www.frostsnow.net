@@ -6,6 +6,9 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2018-11-03}
+I ran into an issue after a system upgrade (Gentoo) last night where X wouldn't start after the upgrade.  The error was: \texttt{(EE) parse_vt_settings: Cannot open /dev/tty0 (Permission denied)}.  It looks like in moving \texttt{x11-base/xorg-server} from version \texttt{1.19.5-r2} to \texttt{1.20.3}  the \texttt{suid} USE flag was disabled; enabling it fixed the issue for me.
+
 \subsection{2018-11-02}
 Google Docs \htmladdnormallink{considered harmful}{https://www.eff.org/deeplinks/2018/10/privacy-badger-now-fights-more-sneaky-google-tracking}.
 
