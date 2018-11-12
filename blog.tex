@@ -1,5 +1,8 @@
 \documentclass{article}
 
+\usepackage{forest}
+\usetikzlibrary[intersections]
+\usetikzlibrary[decorations.pathreplacing]
 \usepackage{html}
 \usepackage{graphicx}
 \usepackage{tikz}
@@ -15,12 +18,343 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
-% Tux in Minetest
-% DotA2 video capture
 
-% Internet Security and the Technocracy
-% X.509
-% Facebook targeting children
+% 4.14-4.18 Linux Kernel Upgrade Networking Woes
+\section{2018-11-11 4.14-4.18 Linux Kernel Upgrade Networking Woes}
+I seem to be having bad luck with kernel upgrades.  Traditionally, upgrades have worked out smoothly\ldots until, of course, I started this blog, at which point they started providing me with blog material.  Normally there wouldn't be anything of particular interest in this blog besides giving an example of thought process for those unfamiliar with it, but necessity caused me to come up with a novel, at least in my experience, hack for manual testing.  The rest was legwork.
+
+\subsection{The Saga Begins}
+I chose to use the latest stable release rather than a newer Long Term Support (LTS) version of my current kernel.  Everything began normally: downloading source, verifying the signature, updating the config with \texttt{make oldconfig}, compiling, installing, and even booting the kernel, except, after booting the kernel I didn't get an IP address.  Re-running the service gave me an IP address, but then running \texttt{ssh} would just hang indefinitely.  I booted into the old kernel (always keep backups) and networking started working again.  Something was broken (\htmladdnormallink{use the latest stable release, he said}{http://kroah.com/log/blog/2018/08/24/what-stable-kernel-should-i-use/})!
+
+The first step was to contact the appropriate people with a bug report.  The kernel source code contained a nice how-to at \texttt{Documentation/admin-guide/reporting-bugs.rst}; this included a format for the bug report as well as a pointer to a script, \texttt{scripts/get_maintainer.pl}, which gave me names and e-mail addresses to submit the bug report to.  So I gathered the data, placed it into the bug report format, and fired off an e-mail.
+
+Not content to simply wait for the maintainers to look at my report, I decided to do a little digging to see if I could find which commit broke networking.  Since I had moved from \texttt{4.14.12} to \texttt{4.18.5} and the latest upstream at the time was \texttt{4.19-rc3} it seemed prudent to try the latest \texttt{-rc} kernel to see if the bug had been fixed.  To my surprise, it worked!  In order to compare apples to apples I then tried the \texttt{4.18} version, which failed.  It seemed that the \texttt{4.18} stable kernel series was missing a patch from the \texttt{4.19} series.
+
+My first approach was to simply \texttt{git log | grep} for my driver, \texttt{r8169}, and look for relevant fixes.  After I had counted 9 relevant commits with many more to go, and realized that each commit would require 2 compilations (one to test if networking is fixed on the commit, another to test that it is broken before the commit), decided that a better method would be to run a \texttt{git bisect} on the source in order to find the fix.
+
+Now, somehow, presumably post-workday delirium, I got it into my head that, when bisecting, using \texttt{good} and \texttt{bad} for descriptive attributes wasn't good enough; thankfully \texttt{git} entertained my delirium and allowed me to rename \texttt{good} to \texttt{fixed} and \texttt{bad} to \texttt{broken} by using \texttt{git bisect start \verb$-$-term-good=fixed \verb$-$-term-bad=broken}, then marking them with \texttt{git bisect fixed} or \texttt{git bisect broken} as needed.
+
+The problem with trying to do this, though, is that each kernel compilation took about half an hour and a manual reboot of my system in order to run the test.  Since I was doing this in my free time after work and in-between getting ready for the next day this meant firing off a single compilation when I got home and testing it right before bed.  This dragged out the process over many days, and, as I honed in on the final commit it seemed to be in the wrong location (the nearby fixes were for an unrelated driver), and, upon testing it, found that the commit I'd honed in on was indeed incorrect (networking was still broken, though I'd run into two fixed commits earlier).  One thing had become clear: I had fucked up.
+
+Thankfully I had been smart enough to take notes and save all of my kernels and their configurations in case this had happened.  Since I wasn't sure what to do at this point I began to peruse the \texttt{git-bisect} man page and found the useful \texttt{git bisect log} to show me what I had marked, and, indeed, I had missed a commit in my logs (though I had thankfully saved the kernel).  Alas, testing the commit showed that my bisect choices were correct; my notes had missed a single entry but were otherwise accurate.  Thus I was left with the annoying task of running through each kernel and checking them for the bug based on my list:
+\begin{quote}
+\begin{verbatim}
+	54dbe75bbf1e - broken
+	307797159ac2 - broken
+	ee090756962c - broken
+	d972604f6f87 - broken
+	c81c7012e0c7 - fixed
+	2a8a2b7c49d6 - broken
+	aba16dc5cf93 - broken
+	cf1acec008f8 - fixed
+	ac4a5b52f597 - broken
+	1eb43fc75448 - broken
+	785e76d7a205 - broken
+	43f8b22450f0 - broken
+	c08eebad4ac5 - broken
+	a9910c088647 - broken
+\end{verbatim}
+\end{quote}
+Before doing this, however, I decided to get smart: it had become apparent after much testing that judging whether or not networking was working from whether or not I received a DHCP lease during system initialization was only accurate about 90\% of the time for whatever reason, so I wrote a quick test that would work all of the time using \texttt{ping -c 3}.  Test in hand, running through the pre-compiled kernels was quite fast and I quickly learned that commit \texttt{cf1acec008f8} was actually \texttt{broken}, not \texttt{fixed}.
+
+Fantastic as it was to find the broken commit, I was still left with a big problem: this process was taking forever (and I'd had a week vacation to slow it all down on top of that) and compiling another 6 kernels, since the ones past \texttt{cf1acec008f8} were now irrelevant) would take another week at least.  From perusing the logs I'd learned earlier about the \texttt{git bisect run} command which could automate testing when provided with the appropriate script, but there were multiple problems with that: first, I had to boot the machine into the kernel under test, which would kill the automated bisection; second, even if I could automatically reboot, the test would hang when trying to decrypt my hard-drive; third, I selected a few non-default options during kernel configuration and it wasn't clear how to programmatically select them.  The third problem was feasibly solvable, the first one might be solvable but would require a non-trivial amount of work, and the second one seemed impossible to solve without an unacceptable security compromise.  Automation was out of the question.
+
+\subsection{Forward Compilation}
+"Necessity is the mother of all invention" as the old saying goes.  The (only) useful thing about refusing to give up using my Pentium 4 is that it necessitates finding clever solutions for problems rather than \htmladdnormallink{throwing more compute power at terrible code}{https://pxlnv.com/blog/bullshit-web/}.
+
+In this case my problem was that kernel compilation took half an hour and testing couldn't be automated, thus it took many hours to compile and run tests.  Yet I was absent sleeping or working most of the day while my machine idled, but how was I to put that time to good use?  I couldn't \emph{know} which kernel to compile next\ldots if only I could \emph{speculate} which kernel to compile I could \emph{pre-compile} it while I was at work then knock out two tests in short order.  Alas, I had no means of speculation as both possibilities were equally likely!  Then it struck me: why speculate?  I could instead compile \emph{both} kernels if they were equally likely and then \emph{discard} the unneeded one, thus I'd be enabled to perform two tests at once without the need to speculate.  Indeed, this logic could be extended to 3, 4, or even more tests!  Eureka!
+
+As a visualization, consider bisecting the following theoretical series of commits named "1" to "64" after their chronological order; this would take 6 steps and can be represented as a binary tree:
+\begin{center}
+\begin{makeimage}
+\reflectbox{\reflectbox{% _THIS_ exists because otherwise LaTeX2HTML can't figure out where and how to crop the damn image.
+\begin{forest}
+[32
+	[16,edge={green!60!black}
+		[8,edge={green!60!black}
+			[4,edge={green!60!black}
+				[2,edge={green!60!black}
+					[1,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[3,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+				[6,edge={red!80!black}
+					[5,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[7,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+			] {\node [rectangle,draw=orange,fit=()] {};}
+			[12,edge={red!80!black}
+				[10,edge={green!60!black}
+					[9,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[11,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+				[14,edge={red!80!black}
+					[13,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[15,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+			] {\node [rectangle,draw=orange,fit=()] {};}
+		] {\node [rectangle,draw=orange,fit=()] {};}
+		[24,edge={red!80!black}
+			[20,edge={green!60!black}
+				[18,edge={green!60!black}
+					[17,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[19,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+				[22,edge={red!80!black}
+					[21,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[23,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+			] {\node [rectangle,draw=orange,fit=()] {};}
+			[28,edge={red!80!black}
+				[26,edge={green!60!black}
+					[25,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[27,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+				[30,edge={red!80!black}
+					[29,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[31,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+			] {\node [rectangle,draw=orange,fit=()] {};}
+		] {\node [rectangle,draw=orange,fit=()] {};}
+	] {\node [rectangle,draw=orange,fit=()] {};}
+	[48,edge={red!80!black}
+		[40,edge={green!60!black}
+			[36,edge={green!60!black}
+				[34,edge={green!60!black}
+					[33,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[35,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+				[38,edge={red!80!black}
+					[37,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[39,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+			] {\node [rectangle,draw=orange,fit=()] {};}
+			[44,edge={red!80!black}
+				[42,edge={green!60!black}
+					[41,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[43,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+				[46,edge={red!80!black}
+					[45,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[47,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+			] {\node [rectangle,draw=orange,fit=()] {};}
+		] {\node [rectangle,draw=orange,fit=()] {};}
+		[56,edge={red!80!black}
+			[52,edge={green!60!black}
+				[50,edge={green!60!black}
+					[49,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[51,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+				[54,edge={red!80!black}
+					[53,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[55,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+			] {\node [rectangle,draw=orange,fit=()] {};}
+			[60,edge={red!80!black}
+				[58,edge={green!60!black}
+					[57,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[59,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+				[62,edge={red!80!black}
+					[61,edge={green!60!black}] {\node [rectangle,draw=orange,fit=()] {};}
+					[63,edge={red!80!black}] {\node [rectangle,draw=orange,fit=()] {};}
+				] {\node [rectangle,draw=orange,fit=()] {};}
+			] {\node [rectangle,draw=orange,fit=()] {};}
+		] {\node [rectangle,draw=orange,fit=()] {};}
+	] {\node [rectangle,draw=orange,fit=()] {};}
+%] {\node [rectangle,draw=orange,fill=green,fill opacity=0.2,draw opacity=0.2,fit=()] {};} % FIXME: Transparency not working.  Works via 'pdflatex', wtf?
+% https://tex.stackexchange.com/questions/172764/opacity-and-transparency  % Doesn't actually work, WTF?
+% https://tex.stackexchange.com/questions/399767/pstricks-and-opacity-with-gradient-filling?noredirect=1
+] {\node [rectangle,draw=orange,fit=()] {};}
+% Left side arrow thingy.
+\node(leftbox) at ($(current bounding box.west) - (0.75, 0)$){$6$};
+\path (current bounding box.north west) -- (current bounding box.north) node(topline){};
+\draw[->] (leftbox) -- (leftbox |- topline);
+\path (current bounding box.south west) -- (current bounding box.south) node(botline){};
+\draw[->] (leftbox) -- (leftbox |- botline);
+\end{forest}
+}}
+\end{makeimage}
+\end{center}
+A bisection would travel downward along the tree, following the green line on a \texttt{fixed} commit and the red line on a \texttt{broken} commit.  The orange boxes represent the number of commits tested in a single "session"; the default is to test a single commit in a single session, represented by a orange box existing around each individual commit; it would thus take 6 sessions to traverse to the bottom of the tree.  Using forward compilation to compile 3 commits worth of kernels at once then produces the following graph:
+
+\begin{center}
+\begin{makeimage}
+\reflectbox{\reflectbox{% _THIS_ exists because otherwise LaTeX2HTML can't figure out where and how to crop the damn image.
+\begin{forest}
+[32
+	[16,edge={green!60!black}
+		[8,edge={green!60!black}
+			[4,edge={green!60!black}
+				[2,edge={green!60!black}
+					[1,edge={green!60!black}]
+					[3,edge={red!80!black}]
+				]
+				[6,edge={red!80!black}
+					[5,edge={green!60!black}]
+					[7,edge={red!80!black}]
+				]
+			] {\node [rectangle,draw=orange,fit=()(!11)(!22)] {};}
+			[12,edge={red!80!black}
+				[10,edge={green!60!black}
+					[9,edge={green!60!black}]
+					[11,edge={red!80!black}]
+				]
+				[14,edge={red!80!black}
+					[13,edge={green!60!black}]
+					[15,edge={red!80!black}]
+				]
+			] {\node [rectangle,draw=orange,fit=()(!11)(!22)] {};}
+		]
+		[24,edge={red!80!black}
+			[20,edge={green!60!black}
+				[18,edge={green!60!black}
+					[17,edge={green!60!black}]
+					[19,edge={red!80!black}]
+				]
+				[22,edge={red!80!black}
+					[21,edge={green!60!black}]
+					[23,edge={red!80!black}]
+				]
+			] {\node [rectangle,draw=orange,fit=()(!11)(!22)] {};}
+			[28,edge={red!80!black}
+				[26,edge={green!60!black}
+					[25,edge={green!60!black}]
+					[27,edge={red!80!black}]
+				]
+				[30,edge={red!80!black}
+					[29,edge={green!60!black}]
+					[31,edge={red!80!black}]
+				]
+			] {\node [rectangle,draw=orange,fit=()(!11)(!22)] {};}
+		]
+	]
+	[48,edge={red!80!black}
+		[40,edge={green!60!black}
+			[36,edge={green!60!black}
+				[34,edge={green!60!black}
+					[33,edge={green!60!black}]
+					[35,edge={red!80!black}]
+				]
+				[38,edge={red!80!black}
+					[37,edge={green!60!black}]
+					[39,edge={red!80!black}]
+				]
+			] {\node [rectangle,draw=orange,fit=()(!11)(!22)] {};}
+			[44,edge={red!80!black}
+				[42,edge={green!60!black}
+					[41,edge={green!60!black}]
+					[43,edge={red!80!black}]
+				]
+				[46,edge={red!80!black}
+					[45,edge={green!60!black}]
+					[47,edge={red!80!black}]
+				]
+			] {\node [rectangle,draw=orange,fit=()(!11)(!22)] {};}
+		]
+		[56,edge={red!80!black}
+			[52,edge={green!60!black}
+				[50,edge={green!60!black}
+					[49,edge={green!60!black}]
+					[51,edge={red!80!black}]
+				]
+				[54,edge={red!80!black}
+					[53,edge={green!60!black}]
+					[55,edge={red!80!black}]
+				]
+			] {\node [rectangle,draw=orange,fit=()(!11)(!22)] {};}
+			[60,edge={red!80!black}
+				[58,edge={green!60!black}
+					[57,edge={green!60!black}]
+					[59,edge={red!80!black}]
+				]
+				[62,edge={red!80!black}
+					[61,edge={green!60!black}]
+					[63,edge={red!80!black}]
+				]
+			] {\node [rectangle,draw=orange,fit=()(!11)(!22)] {};}
+		]
+	]
+] {\node [rectangle,draw=orange,fit=()(!11)(!22)] {};}
+% Left side arrow thingy.
+\node(leftbox) at ($(current bounding box.west) - (0.75, 0)$){$6$};
+\path (current bounding box.north west) -- (current bounding box.north) node(topline){};
+\draw[->] (leftbox) -- (leftbox |- topline);
+\path (current bounding box.south west) -- (current bounding box.south) node(botline){};
+\draw[->] (leftbox) -- (leftbox |- botline);
+\end{forest}
+}}
+\end{makeimage}
+\end{center}
+In this case it takes a total of 2 sessions rather than 6 to work down the tree.  The downside, of course, is that the number of compilations grows \emph{exponentially} with respect to the number of tests to be run; 7 kernels in order to test 3 commits, and 14 kernels to test the tree.  Trying to jam the entire tree into a single session (an orange box around the entire tree) would require compiling all 64 kernels.
+
+Mathematically, the number of tests \texttt{n} that can be run over a given time period \texttt{t} is given by taking the floor of the base 2 logarithm of \texttt{t} divided by average time of compilation \texttt{c}:
+\begin{center}
+\begin{makeimage}
+	$n = \left \lfloor \log_2(\frac{t}{c}) \right \rfloor$
+\end{makeimage}
+\end{center}
+In my case, 30-minute compilations with a 20-hour compilation period meant 5 tests could be done in a day!  While this is no academic breakthrough due to its usefulness being limited by exponential growth (a 40-hour compilation period would only give 6 tests), the ability to run 5 tests at once is a huge improvement over running tests one at a time.
+
+\subsection{The Final Stretch}
+Excited to try my new technique, I was still delayed by the necessity of automating kernel configuration.  Someone suggested that I try using the \texttt{MIN_CONFIG} option of \texttt{tools/testing/ktest/ktest.pl}.  I quickly found the tool to be rather unwieldy for my relatively simple task; this was clearly a tool meant for much more than to apply a simple configuration and build.  I figured out enough of the tool to have it read my configuration file and apply the minimum configuration, but it then tried to configure \emph{again} and erred out claiming that the directory was "not clean".  Impatient, I decided to simply use \texttt{make olddefconfig}; although not entirely accurate it would most likely be enough for my current issue.
+
+Configuration automation in hand I wrote a quick test script and, after a couple of tries, of course, was able to crank out 2 tests worth of kernels, and another 4 tests (the remaining amount) of kernels the next day while I was at work.  Below is a (simplified) version of the script I was able to use:
+\begin{quote}
+\begin{verbatim}
+forward_compile() {
+	local commit=$(git log --oneline -n 1 | cut -f 1 -d ' ')
+	local log="${LOG}-${commit}"
+	# Build kernel.
+	# Save results.
+	# Compile forward.
+	if [ $1 -lt 1 ]; then
+		return
+	fi
+	git bisect log > "${log}"
+	git bisect fixed
+	forward_compile $(($1 - 1))
+	git bisect replay "${log}"
+	git bisect broken
+	forward_compile $(($1 - 1))
+	git bisect replay "${log}"
+}
+RESULTS="fwdcmpl"
+LOG="${RESULTS}/.tmp_bisect_log"
+# Parse arguments.
+if [ $# -lt 1 ]; then
+	echo "USAGE: $0 DEPTH"
+	echo "  DEPTH: Tree depth to traverse (2^DEPTH builds will be done)."
+	exit 1
+fi
+# Perform forward compilation.
+forward_compile $1
+\end{verbatim}
+\end{quote}
+I was lucky that, during the second run, there were exactly 8 commits left so I did not need to test corner-cases.  Thus I was able to finish testing 6 kernels in two days rather than six, giving me the following list:
+\begin{quote}
+\begin{verbatim}
+	54dbe75bbf1e - broken
+	307797159ac2 - broken
+	ee090756962c - broken
+	d972604f6f87 - broken
+	c81c7012e0c7 - fixed
+	2a8a2b7c49d6 - broken
+	aba16dc5cf93 - broken
+	cf1acec008f8 - broken
+	15c480efab01 - broken
+	6e0bb04d0e4f - fixed
+	6a5d39aa9ac2 - broken
+	9a07efa9aea2 - broken
+	31fabbee8f5c - fixed
+	05212ba8132b - fixed
+\end{verbatim}
+\end{quote}
+
+Alas, it had taken me so long to run all of these tests that the latest stable kernel had moved all the way to \texttt{4.18.14}.  I decided to test this kernel, only to find that networking now worked again!  Someone else must have discovered the bug and backported the patch before I could, the bastard!  My efforts to find the bug fix were thus rendered futile, but at least I learned a useful trick along the way.
+
+I never did hear back from the maintainers, though I did update them letting them know that the bug had been fixed; annoyingly, my message to the mailing list was rejected with the error "\texttt{Your address is not liked source for email}".  Rude!  Things were working again, though, and I wasn't keen on fighting the mailing list at this point, especially when I could be generating visuals for this blog\ldots hopefully I don't need to upgrade my kernels before I finish writing it.
+
 
 \section{2018-10-07 From Brainpool to Mindmush in OpenSSL}
 I have a series of \htmladdnormallink{tests}{https://github.com/clinew/inspircdtests} which attempt to connect to an SSL/TLS-enabled service; the tests use different types of cryptography: RSA, DSA, and EC.  When I began testing with the OpenSSL 1.1.0 series instead of the 1.0.1 series, the test which uses EC started to return an "unknown" result rather than "pass" or "fail".  Looking at the client output showed the following error message: \texttt{140379411924736:error:1409441A:SSL routines:ssl3_read_bytes:tlsv1 alert decode error:ssl/record/rec_layer_s3.c:1399:SSL alert number 50}; the server output wasn't particularly helpful: \texttt{SOCKET: Error on FD 8 - 'Read Error'}.
@@ -65,6 +399,7 @@ Since this behaviour was unexpected, I decided to ask the OpenSSL maintainers ab
 As \texttt{brainpoolP512p1} was now clearly not portable, the next step was to try a different curve.  I chose the \texttt{brainpoolP512r1} curve mentioned in the first OpenSSL bug, and this worked for both series of the library.  Thus my noggin-melting problem was solved by changing a single character.  Perhaps in the future I'll be more leery of making arbitrary selections, but in this case a quick Internet search beforehand didn't reveal anything digestible, so probably not.
 
 
+% Logging OpenSSL Connections.
 \section{2018-08-05 Logging OpenSSL Connections}
 Unfortunately for me, using client certificates for authentication left my IRC service without any meaningful logging, as most of the per-user log messages in InspIRCd assumed that the client would make it past certificate verification.  Since this is a rather esoteric feature, it was up to me to write the code that would enable this; in fact, I'd written a \htmladdnormallink{patch}{https://github.com/clinew/inspircd} for this over a year ago, but had neglected what would happen in the rare event that the client presented a \emph{chain} of certificates rather than just a single certificate, thus I had to revisit my old patch and extend its functionality.  This required gathering some data in order to determine what a good log message might look like, actually implementing the code, and, of course, finding some unexpected functionality along the way.
 
