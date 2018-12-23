@@ -6,6 +6,23 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2018-12-22}
+I had an issue where audio stopped working on my Novena.  Looking via '\texttt{alsamixer}' showed that it appeared to be using '\texttt{DW-HDMI}' instead of \texttt{imx-audio-es8328}'.  I was able to get it working again by creating '\texttt{/etc/asound.conf}' with contents:
+
+\begin{quote}
+\begin{verbatim}
+pcm.!default {
+	type hw
+	card 1
+}
+ctl.!default {
+	type hw
+	card 1
+}
+\end{verbatim}
+\end{quote}
+Found at: \htmladdnormallink{https://superuser.com/questions/626606/how-to-make-alsa-pick-a-preferred-sound-device-automatically}{https://superuser.com/questions/626606/how-to-make-alsa-pick-a-preferred-sound-device-automatically}.
+
 \subsection{2018-12-09}
 In order to clone from an HTTPS site which uses self-signed certificates, use '\texttt{GIT_SSL_CAINFO="/path/to/selfsigned/cert.pem" git clone blah blah}'.
 
