@@ -6,6 +6,19 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2018-12-30}
+\begin{quote}
+\begin{verbatim}
+frostsnow@hesse ~/linux-4.19.13 $ make
+Makefile:958: *** "Cannot generate ORC metadata for CONFIG_UNWINDER_ORC=y, please install libelf-dev, libelf-devel or elfutils-libelf-devel".  Stop.
+frostsnow@hesse ~/linux-4.19.13 $ grep ORC .config
+CONFIG_IRQ_FORCED_THREADING=y
+# CONFIG_I2C_NFORCE2 is not set
+# CONFIG_UNWINDER_ORC is not set
+\end{verbatim}
+\end{quote}
+After some digging, this appears to be caused by: \htmladdnormallink{https://lkml.org/lkml/2017/12/25/211}{https://lkml.org/lkml/2017/12/25/211}.  So much for breaking my woeful kernel upgrade streak.
+
 \subsection{2018-12-22}
 I had an issue where audio stopped working on my Novena.  Looking via '\texttt{alsamixer}' showed that it appeared to be using '\texttt{DW-HDMI}' instead of \texttt{imx-audio-es8328}'.  I was able to get it working again by creating '\texttt{/etc/asound.conf}' with contents:
 
