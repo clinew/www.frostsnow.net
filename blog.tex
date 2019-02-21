@@ -18,6 +18,365 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+\section{2019-02-21 Rebuilding a Mathematical Foundation: Euclid, Books I to V}
+Since leaving college for the workforce, the amount of math I've had to do has been reduced to nothing.  While some might welcome this, I find it rather tragic as, to me, math is an incredibly useful tool that allows me to recognize abstract patterns in complex situations and thus get a grasp on things that would otherwise be overwhelming or elude comprehension.  Instead I learn things such as the specifics of Application Programming Interfaces (APIs) and how to use specific Graphical User Interfaces (GUIs), but, as instances of a class are ephemeral, so are specific APIs and GUIs to their underlying mathematical patterns (to the extent that the patterns are understood), and I'd prefer to get a better handle on the underlying patterns than constantly running the rat-race of memorizing specifics.
+
+I took some time to remedy this on my own by trying to \htmladdnormallink{self-study}{https://github.com/clinew/introduction_to_algorithms} out of \htmladdnormallink{Rivest, et al.}{https://en.wikipedia.org/wiki/Introduction_to_Algorithms}, but while trying to do so I found that the mathematical foundation that I'd retained from my academic years was lacking.  Some of that could be blamed on the academic institutions, as not all of my teachers were great and inspiring, while other times it could be blamed on myself, as I tended to put more thought into women than mathematical truth during my teenage years.  Regardless of how I'd gotten there it became clear to me that I needed some kind of refresher in order to fill in the gaps left by my teachers and me, which meant I had to come up with some kind of plan.
+
+\subsection{Developing a Plan}
+I began by doing some \htmladdnormallink{serious academic research}{https://www.wikipedia.org} with an emphasis on the type mathematics most relevant to computers, focusing on names of theoreticians that I already knew of such as Turing, Von Neumann, and Church.  From this I compiled a list of authors and potential works that seemed relevant to a solid mathematical foundation with an emphasis on computation, coupled with a couple other possibly interesting works; alas it was not always clear from the Wikipedia page which works would be relevant nor were they always enumerated in a clear manner, but the list which I compiled was a rough start:
+\begin{itemize}
+	\item George Boole
+	\begin{itemize}
+		\item The Mathematical Analysis of Logic
+		\item An Investigation of the Laws of Thought
+	\end{itemize}
+	\item Augustus De Morgan
+	\begin{itemize}
+		\item Trigonometry and Double Algebra
+		\item Formal Logic
+		\item Budget of Paradoxes
+		\item Relations
+	\end{itemize}
+	\item Von Neumann
+	\begin{itemize}
+		\item Mathematical Foundations of Quantum Mechanics
+		\item Theory of Games and Economic Behaviour
+		\item "The Mathematician"
+		\item Theory of Self Reproducing Automata
+		\item On the Introduction of Transfinite Numbers
+		\item An Axiomization of Set Theory
+		\item The General and Logical Theory of Automata
+		\item Continuous Geometry
+	\end{itemize}
+	\item Alan Turing
+	\begin{itemize}
+		\item Collected Works of A. M. Turing
+	\end{itemize}
+	\item Alonzo Church
+	\begin{itemize}
+		\item Church's Theorem (Entscheidungsproblem)
+		\item Church-Turing Thesis
+		\item Introduction to Mathematical Logic
+		\item The Calculi of Lambda-Conversion
+		\item A Bibliography of Symbolic Logic
+		\item Logic, Meaning and Computation: Essays in memory of Alonzo Church
+	\end{itemize}
+	\item Claude Shannon
+	\begin{itemize}
+		\item A Symbolic Analysis of Relay and Switching Circuits
+		\item The Mathematical Theory of Communication
+		\item Communication Theory of Secrecy Systems
+		\item Claude Elwood Shannon: Collected Papers (IEEE Press)
+		\item Programming a Computer for Playing Chess
+	\end{itemize}
+	\item Gottfried Wilhelm Leibniz
+	\begin{itemize}
+		\item Monadologie
+		\item A Philosopher's Creed
+		\item General Inqueries About the Analysis and Concepts of Truth
+		\item Explanation of Binary Arithmetic
+		\item New Essays on Human Understanding
+	\end{itemize}
+	\item Isaac Newton
+	\begin{itemize}
+		\item Mathematical Principles of Natural Philosophy
+		\item Opticks
+		\item Method of Fluxions
+	\end{itemize}
+	\item Euclid of Alexandria
+	\begin{itemize}
+		\item Elements
+	\end{itemize}
+	\item Aristotle
+	\begin{itemize}
+		\item Organon
+	\end{itemize}
+	\item Pythagoras of Samos
+	\item Georg Cantor
+	\begin{itemize}
+		\item On a Property of the Collection of All Real Algebraic Numbers
+		\item Contributions to the Founding of the Theory of Transfinite Numbers
+	\end{itemize}
+	\item Bertrand Russel
+	\begin{itemize}
+		\item The Principles of Mathematics
+		\item Principa Mathematica
+		\item Logical Atomism
+	\end{itemize}
+	\item Kurt Godel
+	\begin{itemize}
+		\item Godel's Completeness Theorem
+		\item On Formally Undecidable Propositions of "Principa Mathematica" and Related Systems
+		\item Consistency of the axiom of choice and of the generalized continuum-hypothesis with the axioms of set theory
+	\end{itemize}
+	\item Haskell Curry
+	\begin{itemize}
+		\item Foundations of Mathematical Logic
+		\item Combinatory Logic
+		\item A theory of formal deducibility
+	\end{itemize}
+\end{itemize}
+This was quite the list (note that Pythagoras of Samos had no writings to study!), so obviously some kind of order would have to be imposed on it.  The first thing was to realize that it'd be too much to read all of each author's works, so the best bet would be to try and pick one or two of each author's best, most influential, and most relevant works to read.  Next, some kind of structure should be imposed on the order of readings; as knowledge tends to build upon itself, a chronological order seemed most natural here, but with the later authors it was unclear who should come first, therefore I gave them a tentative grouping and order.  The list, with their groups, was thus as follows:
+\begin{itemize}
+	\item "Ancients"
+	\begin{itemize}
+		\item Euclid's Elements
+		\item Aristotle's Organon
+		\item Newton's Mathematical Principles of Natural Philosophy
+		\item Leibniz's Explanation of Binary Arithmetic
+	\end{itemize}
+	\item Computers
+	\begin{itemize}
+		\item George Boole
+		\begin{itemize}
+			\item The Mathematical Analysis of Logic
+			\item An Investigation of the Laws of Thought
+		\end{itemize}
+		\item Augustus De Morgan
+		\begin{itemize}
+			\item Formal Logic
+			\item Budget of Paradoxes
+		\end{itemize}
+		\item Von Neumann
+		\begin{itemize}
+			\item "The Mathematician"
+			\item Theory of Self Reproducing Automata
+			\item The General and Logical Theory of Automata
+		\end{itemize}
+		\item Alan Turing
+		\begin{itemize}
+			\item Collected Works of A. M. Turing
+		\end{itemize}
+		\item Alonzo Church
+		\begin{itemize}
+			\item Church's Theorem (Entscheidungsproblem)
+			\item Church-Turing Thesis
+			\item Introduction to Mathematical Logic
+		\end{itemize}
+		\item Claude Shannon
+		\begin{itemize}
+			\item A Symbolic Analysis of Relay and Switching Circuits
+			\item The Mathematical Theory of Communication
+			\item Communication Theory of Secrecy Systems
+		\end{itemize}
+	\end{itemize}
+	\item Others
+	\begin{itemize}
+		\item Georg Cantor
+		\begin{itemize}
+			\item On a Property of the Collection of All Real Algebraic Numbers
+		\end{itemize}
+		\item Bertrand Russel
+		\begin{itemize}
+			\item The Principles of Mathematics
+			\item Principa Mathematica
+		\end{itemize}
+		\item Von Neumann
+		\begin{itemize}
+			\item An Axiomization of Set Theory (Von Neumann-Bernays-Godel set theory) (Russel's paradox first)
+		\end{itemize}
+		\item Kurt Godel
+		\begin{itemize}
+			\item Godel's Completeness Theorem (The completeness of the axioms of the functional calculus of logic)
+			\item Godel's Incompleteness Theorem (On Formally Undecidable Propositions of "Principa Mathematica" and Related Systems)
+		\end{itemize}
+		\item Haskell Curry
+		\begin{itemize}
+			\item Foundations of Combinatorial Logic
+			\item Foundations of Mathematical Logic
+		\end{itemize}
+	\end{itemize}
+\end{itemize}
+This list gave a rough outline for how to proceed; though it's likely far from perfect, I won't be able to fully realize how until later.  I'll likely end up splicing in a few works from the "Others" category as I progress, depending on what seems appropriate.  It's also a highly-ambitious project that will likely take me decades to complete given full-time employment and my hobby projects, but I imagine it will be worthwhile, even if I do manage to complete the project.  The basic plan in place, it was thus time to begin, starting nearly two and half millennia ago with Euclid's "Elements".
+
+\subsection{Euclid, Books I to V}
+When I began reading Euclid it wasn't exactly clear to me whether I'd have anything worth saying, in fact, I'm still not convinced that I do, as I've no doubt that many highly-educated mathematical scholars have made extensive commentary of the text, whereas I am a mere computer programmer taking a cursory read through it.  As such, I will not even try giving any kind of comprehensive commentary and will instead point out a few things that I found befuddling, interesting, or otherwise noteworthy, after quickly providing the details of my methodology.
+
+The translation that I chose to read was Thomas L. Heath's translation.  Given my current time-management system it would have been impractical to tackle all of "Elements" in one go, thus I divvied it up into four sections: 1) books I to V, 2) books VI - IX, 3) book X, and 4) books XI - XIII.  As you may have surmised from the title, this blog covers only the first section.
+
+The material of these first five books felt in many ways like a refresher of high school geometry, except without the sleep-inducing monotone of my teacher that year.  However, the material also felt more mature, like a college course; as I recall, fewer things were proven in high school and more was asserted, this created a more disjoint effect than Euclid, who started with a few simple premises and then continuously built upon them.  As with most books, the language has taken a bit of getting used to; the algebraic form of math which I am accustomed to was likely not developed when "Elements" was written, but the diagrams with every proposition more than made up for the unfamiliar vernacular.
+
+\subsubsection{Book I, Proposition 7}
+The first major difficulty that I ran into was in \htmladdnormallink{Book I, Proposition 7}{https://mathcs.clarku.edu/~djoyce/java/elements/bookI/propI7.html}, which had the following diagram and statement:
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{ % I don't like this but haven't fixed latex2html's cropping bug yet.
+\begin{tikzpicture}
+	\coordinate [label=left:A] (A) at (0, 0);
+	\coordinate [label=right:B] (B) at (10, 0);
+	\coordinate [label=above:C] (C) at (7, 4);
+	\coordinate [label=right:D] (D) at (9, 3);
+	\draw (A) -- (B);
+	\draw (A) -- (C);
+	\draw (A) -- (D);
+	\draw (B) -- (C);
+	\draw (B) -- (D);
+	\draw (C) -- (D);
+\end{tikzpicture}
+}
+\end{makeimage}
+\end{figure}
+\end{center}
+\begin{quote}
+Thus, since \textit{AC} is equal to \textit{AD},
+\begin{centering}
+the angle \textit{ACD} is also equal to the angle \textit{ADC}; \\
+therefore the angle \textit{ADC} is greater than the angle \textit{DCB}; \\
+therefore the angle \textit{CDB} is much greater than the angle \textit{DCB}. \\
+\end{centering}
+\end{quote}
+
+What wasn't clear to me was how, exactly, \textit{ADC} was bigger than \textit{DCB}.  The answer in this case was the unstated assumption that "the part is greater than the whole"; looking at the diagram I was supposed to have noticed how the angle \textit{DCB} was within the angle \textit{ACD}, therefore \textit{DCB} was less than \textit{ACD} and, since \textit{ADC} was proven equal to \textit{ACD}, \textit{DCB} was thus also less than \textit{ADC}.  This confused me because, at this point, I was not yet sure whether to treat the diagram as part of the proposition and thus containing information perhaps not explicitly stated or as an auxiliary piece of information to help visualize the proposition.  Given the proposition so far, one could construct an alternate diagram as follows:
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tikzpicture}
+	\coordinate [label=left:A] (A) at (0, 0);
+	\coordinate [label=right:B] (B) at (10, 0);
+	\coordinate [label=above:C] (C) at (3, 4);
+	\coordinate [label=left:D] (D) at (1, 3);
+	\draw (A) -- (B);
+	\draw (A) -- (C);
+	\draw (A) -- (D);
+	\draw (B) -- (C);
+	\draw (B) -- (D);
+	\draw (C) -- (D);
+\end{tikzpicture}
+}
+\end{makeimage}
+\end{figure}
+\end{center}
+In this case the angle \textit{ADC} would be less than the angle \textit{DCB} (at least, given the proposition so far, as the whole thing is proved absurd in the end).  Thus it was impossible to come to either conclusion regarding \textit{ADC} and \textit{DCB} without the extra information contained in the diagram.  Once it became apparent that the diagram contained information not explicitly stated in the text the proposition became readily understandable.  While it may seem trivial, this misunderstanding caused me untold confusion for a few hours as I had to map out both possibilities to the end while constantly mentally-switching between the two, unsure which one to progress.
+
+\subsubsection{Book I, Proposition 47}
+Perhaps this was shown me long ago, perhaps not; this proposition is a proof of the Pythagorean Theorem.  It was interesting to see as, despite being able to use the theorem in calculations, I had not thought to visualize it as literal squares on the side of the triangle, nor that I could reason about the relationship of their sizes based on the geometry I'd learned.
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tikzpicture}
+	\coordinate [label=225:B] (B) at (0, 0);
+	\coordinate [label=right:C] (C) at (5, 0);
+	\coordinate [label={[label distance=1mm,above]105:A}] (A) at (53.13014723127149049863:3);
+	\path (B) +(0, -5) coordinate [label=below left:D] (D);
+	\path (D) +(5, 0) coordinate [label=below right:E] (E);
+	\path (A) +(143.13014723127149049863:3) coordinate [label=above:G] (G);
+	\path (G) +(233.13014723127149049863:3) coordinate [label=left:F] (F);
+	\path (A) +(53.13014723127149049863:4) coordinate [label=above:H] (H);
+	\path (H) +(323.13014723127149049863:4) coordinate [label=right:K] (K);
+	\draw (A) -- (B) -- (C) -- (A);
+	\draw (B) -- (D) -- (E) -- (C) -- (B);
+	\draw (A) -- (G) -- (F) -- (B);
+	\draw (A) -- (H) -- (K) -- (C);
+	\draw (A) -- (D);
+	\draw (A) -- (E);
+	\draw (C) -- (F);
+	\draw (B) -- (K);
+	\draw (A) -- (A |- D) coordinate [label=below:L] (L);
+\end{tikzpicture}
+}
+\end{makeimage}
+\end{figure}
+\end{center}
+I won't re-iterate the formula here as it's easily searchable.
+
+\subsubsection{Book III, Proposition 16}
+This was the first time I'd ever really heard the term "rectilineal angle" used, and I found it quite baffling:
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tikzpicture}
+	\definecolor{mycolor}{RGB}{217, 217, 217}; % Designed LaTeX2HTML transparency color.
+	\coordinate [label=above:B] (B) at (0, 2);
+	\coordinate [label=below:A] (A) at (0, -2);
+	\coordinate [label=right:D] (D) at (0, 0);
+	\coordinate [label=below left:C] (C) at (220:2);
+	\coordinate [label=left:E] (E) at (-4, -2);
+	\path (0, -2) +(175:3) coordinate [label=left:F] (F);
+	\draw (0, 0) circle [radius=2];
+	\draw (B) -- (A) -- (E);
+	\draw (D) -- (C) -- (A);
+	\draw [name path=af] (A) -- (F);
+	\path [name path=dh] (D) -- (245:3);
+	\draw [name intersections={of=af and dh}] (D) -- (intersection-1) coordinate [label={[label distance=1pt,fill=mycolor,inner sep=0.5pt]below:G}] (G);
+	\coordinate [label={[label distance=2pt,fill=mycolor,inner sep=0.5pt,anchor=335]165:H}] (H) at (245:2);
+\end{tikzpicture}
+}
+\end{makeimage}
+\end{figure}
+\end{center}
+\begin{quote}
+I say further that the angle of the semicircle contained by the straight line \textit{BA} and the circumference \textit{CHA} is greater than any acute rectilineal angle, and the remaining angle contained by the circumference \textit{CHA} and the straight line \textit{AE} is less than any acute rectilineal angle.
+\end{quote}
+
+Not sure what Euclid meant by "the angle contained by\ldots the circumference \textit{CHA}", I tried imagining the segment \textit{CHA} and thus the angle contained by the line \textit{CA} and \textit{BA} or \textit{AE}, but that didn't make any sense.  After thinking on the text a bit longer I gave up and decided to search for the proposition and landed at \htmladdnormallink{this page}{https://mathcs.clarku.edu/~djoyce/java/elements/bookIII/propIII16.html} (whose site I'd come across earlier) which explained that what Euclid was referring to was called a "Horn angle"; that is, Euclid was describing the angle made between a \emph{line} and a \emph{curve}.  Nothing that I'd learned in geometry had prepared me for this; I'd always thought of angles as between straight lines, never between curves, hence I was totally blind-sided by the idea.  The proposition now made sense, though, and I was lucky enough to not have to consider horn angles for the rest of my reading (so far).
+
+\subsection{Epilogue: Generating a Transparent Graph}
+The last graph took a surprising amount of effort in order to generate, so I'm going to ramble about it here.  The trick came about in part because of the \textit{G} and \textit{H} labels; unlike the other labels, these needed to mask the lines under them.  The simple solution was to add a \texttt{fill=white} command, but, of course this doesn't quite work on the grayish background of the webpage, but, wait, what's with that background:
+\begin{figure}
+\includegraphics[scale=0.5]{files/blog/2019_02_21_math_euclid_pt1/2019_02_21_broken.png}
+\caption{Figure is produced with a contrasting background.}
+\end{figure}
+Though I could change the fill to the same color as the webpage background, I didn't know what color that was and worried that future graphs may need more colors that would trigger this issue, so I resolved to find out what was going on and fix it.
+
+I first supplied \texttt{-debug} to the \texttt{latex2html} command-line and learned that the final part of the image processing involves running the \texttt{pnmcrop}, \texttt{ppmquant}, and then \texttt{pnmtopng} commands.  Unfortunately, \LaTeX2html was cleaning the intermediate PNM, PS, and PNG files, but that was remedied by editing the \texttt{latex2html} file's \texttt{cleanup} function to simply return rather than perform clean-up.  Looking at the intermediate files I then noticed that all of the PostScript and PNM files in fact had the same gray background, it was only the PNG images in which the background had (usually) become fully transparent.  For example, here is how the graph relating to Book I, Proposition 47 looks like as a PNM (though it was converted to a PNG for posting's sake):
+\begin{figure}
+\includegraphics[scale=0.5]{files/blog/2019_02_21_math_euclid_pt1/2019_02_21_workspnm.png}
+\caption{PNMs of images that work fine have the same gray background.}
+\end{figure}
+Looking closer at the commands showed that the \texttt{-trans '#d9d9d9'} option was being passed to \texttt{pnmtopng}, thus it seemed that the gray color was being used as a marker for what would become transparent in the final PNG image, but why wasn't it working for this problem image?  I also took a look at the resulting files with the \texttt{file} command, naming one image "working" and the other "broken" after whether they rendered as per my expectation or not, respectively:
+\begin{quote}
+\begin{verbatim}
+	works.pnm:  Netpbm image data, size = 1032 x 1093, rawbits, pixmap
+	broken.pnm: Netpbm image data, size = 643 x 518, rawbits, pixmap
+	works.png:  PNG image data, 1032 x 1093, 4-bit colormap, interlaced
+	broken.png: PNG image data, 643 x 518, 8-bit grayscale, interlaced
+\end{verbatim}
+\end{quote}
+So the broken image was being converted to a grayscale which had no alpha channel!  I ran the command myself (\texttt{pnmtopng -interlace -trans '#d9d9d9'}) in order to see if I could reproduce the output and, sure enough, ran into the same issue.  I checked the man page for a workaround and noticed that by default the program would use a "nearby" color if the specified transparency color wasn't found, but I could append an \texttt{=} to the color in order to make it match exactly.  When I tried this neither the working image nor the broken image had \emph{any} transparency, and the previously-working image printed the warning \texttt{pnmtopng: specified transparent color not present in palette; ignoring -transparent} as well (the broken image did not print anything); strange that it should only warn for working image, presumably the broken one matched better, but then where was the transparency?!  I figured it must not exist in grayscale images, as they must not have an alpha channel.  At this point I decided to e-mail the soon-to-be-unfortunate program maintainer telling him that I'd run into a bug.  In the meantime I figured out that I could set the fill color with \verb+\definecolor{mycolor}{RGB}{192, 192, 192}+ to make it the same gray as the background and thus cause it to appear transparent as the other, "working", image was, but this workaround was still not satisfying.
+
+The maintainer got back to me and told me that, in fact, the grayscale image does have transparency in it!  Apparently, for images where a single color is designated as transparent, that information is encoded via something called a "\htmladdnormallink{tRNS chunk}{http://www.libpng.org/pub/png/book/chapter08.html#png.ch08.div.5.2}" rather than a separate alpha channel (thus saving space).  He told me that I could check using either \texttt{pngtopam -verbose > /dev/null} or \texttt{pngcheck -v}.  Doing so showed the following:
+\begin{quote}
+\begin{verbatim}
+	File: broken.png (9153 bytes)
+	  chunk IHDR at offset 0x0000c, length 13
+	    643 x 518 image, 8-bit grayscale, interlaced
+	  chunk tRNS at offset 0x00025, length 2
+	    gray = 0x00d9
+	  chunk IDAT at offset 0x00033, length 8192
+	    zlib: deflated, 32K window, default compression
+	    rows per pass: 65, 65, 65, 130, 129, 259, 259
+	  chunk IDAT at offset 0x0203f, length 878
+	  chunk IEND at offset 0x023b9, length 0
+	No errors detected in broken.png (5 chunks, 97.3% compression).
+
+	File: works.png (21851 bytes)
+	  chunk IHDR at offset 0x0000c, length 13
+	    1032 x 1093 image, 4-bit palette, interlaced
+	  chunk PLTE at offset 0x00025, length 48: 16 palette entries
+	  chunk IDAT at offset 0x00061, length 8192
+	    zlib: deflated, 32K window, default compression
+	    rows per pass: 137, 137, 137, 274, 273, 547, 546
+	  chunk IDAT at offset 0x0206d, length 8192
+	  chunk IDAT at offset 0x04079, length 5326
+	  chunk IEND at offset 0x05553, length 0
+	No errors detected in works.png (6 chunks, 96.1% compression).
+\end{verbatim}
+\end{quote}
+So the broken image did indeed have a transparency value encoded as a tRNS chunk while the working image had a palette entry to designate transparency, but why wasn't it showing as transparent on the broken image?  Were all the image viewers that I tried just buggy?
+
+Then it occurred to me: does \texttt{#d9d9d9} actually map onto an 8-bit grayscale?  I opened the PNG image and noticed that the gray was actually \texttt{#c0c0c0}!  So it had been downscaled, but, wait, it turned out to be the same value in the PNM image... and the PostScript image!  Well, what created the PostScript image?  That turned out to be a DVI file which contained \emph{all} of the images, so it was a bit tricker to analyze.  After digging in \LaTeX2html's source code though I eventually found that the background color was set via the variable \texttt{\$LATEX_COLOR} which was by default \verb+\pagecolor[gray]{.7}+.  By setting this value myself in \texttt{.latex2html-init} to the expected transparency value with \verb+\pagecolor[RGB]{217, 217, 217}+ (the decimal equivalent of the hexadecimal value) and adjusting my workaround to also use said value (never mind that I didn't previously comprehend that I was using \texttt{#c0c0c0} rather than \texttt{#d9d9d9} when I first implemented the workaround) I could then generate a correct image!  In addition, the warning that came from generating a PNG from the PNM file when using the exact transparency specification went away.  Turns out the other images \emph{happened} to work because \texttt{pnmtopng} was selecting the nearby color \texttt{#c0c0c0} when it couldn't find \texttt{#d9d9d9}, but this nearness selection didn't happen when generating a grayscale image, thus causing my problem!
+
+The problem root caused and solution found, I decided to check if there was anywhere I could submit a patch against \LaTeX2html.  Checking my distribution's upstream it appeared that someone had actually taken on maintaining the \htmladdnormallink{program}{https://github.com/latex2html/latex2html/} to some extent, as the original author, Nikos Drakos, was no longer maintaining it.  Before submitting a patch I took a look at the newest version and noticed that a number of significant changes had been made, such as using \texttt{pdflatex} in order to generate images by default.  Slightly daunted, I tried it out, but the results that I got had a black background for all images and made some other changes to the layout of the webpage that I was not particularly keen on.  I tried tweaking the options based on a few of the commits but quickly ran out of patience; I was not trying to port my website to a new version of the tool with breaking changes \emph{and} fix a bug, especially as I'd already dumped so much time into it already.  Before quitting, though, I did notice a \htmladdnormallink{patch}{https://github.com/latex2html/latex2html/commit/02aca89d8c282a8c65d60fcbdd3c6ccf30f4bea8} which appeared to address a similar issue.  Fair enough then, it seemed the problem was already noticed and had a solution; too bad I didn't see it sooner!
+
+Thus the great image conversion transparency saga of early 2019 came to an end.  Hopefully my next blog attempt will run into fewer issues, sheesh!
+
+My thanks to the Netpbm (\texttt{pnmtopng}) maintainer Bryan Henderson for his assistance.
+
 
 % Pillars of Eternity: Path of the Damned, Act II
 \section{2018-11-25 Pillars of Eternity: Path of the Damned, Act II}

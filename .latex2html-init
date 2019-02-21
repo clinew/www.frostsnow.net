@@ -2,6 +2,9 @@ $ADDRESS = "Generated using LaTeX2html: <a href=\"https://github.com/clinew/www.
 $CHILDLINE = "<HR>\n";
 #$foot_title = "Generated using \LaTeX2html\nSource: https://github.com/clinew/www.frostsnow.net.git";
 $EXTRA_IMAGE_SCALE = 2;
+# Workaround for LaTeX2HTML using "C0C0C0" as the default background color
+# of pages but "D9D9D9" as the transparency color.
+$LATEX_COLOR = "\\pagecolor[RGB]{217, 217, 217}";
 
 sub top_navigation_panel {
 	# Generic website header.
