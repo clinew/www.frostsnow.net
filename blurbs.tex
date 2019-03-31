@@ -6,6 +6,18 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2019-03-30}
+\begin{verbatim}
+frostsnow@localhost ~/hobby/www.frostsnow.net $ gs
+gs: relocation error: /usr/lib/libgnutls.so.30: symbol _idn2_punycode_decode version IDN2_0.0.0 not defined in file libidn2.so.0 with link time reference
+\end{verbatim}
+I'm not sure what caused this, and recompiling \texttt{ghostscript-gpl} threw a similar linking error (which I forgot to record), but I managed to "fix" it via:
+\begin{verbatim}
+emerge -avC cups-filters cups
+USE="-cups" emerge -1av ghostscript-gpl
+\end{verbatim}
+I'm\ldots going to hope the problem just stays away now.
+
 \subsection{2019-01-27}
 If programs are written by programmers it follows that applications are written by applicationers.
 
