@@ -18,6 +18,91 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+\section{2019-03-31 Tree Growth in Minetest}
+There is a quaint mod that I like to run on my Minetest world which adds a few extra trees and plants to the world, such as orange trees.
+
+\begin{figure}
+\includegraphics[scale=0.33]{files/blog/2019_03_31_tree_growth_in_minetest/2019_03_31_orange_trees.png}
+\caption{A group of orange trees (with regular trees behind them) before harvest.}
+\end{figure}
+
+As I began to grow and harvest an orchard of the extra trees I began to notice that sometimes a tree would grow near-instantaneously while others would languish for what seemed to be an indefinite time.
+
+\begin{figure}
+\includegraphics[scale=0.33]{files/blog/2019_03_31_tree_growth_in_minetest/2019_03_31_harvested.png}
+\caption{Immediately after being harvested and re-planted, one of the saplings has already grown into a tree.}
+\end{figure}
+
+The trees in the default game, however, seemed to grow at a steady rate.  The growth asymmetry bothered me, so I decided to study and modify the code so that the mod would match the default game.  Note, however, that I wrote the mod against the v0.4.16 version while v5.0.0 (v0.5.0 and company were skipped) is the latest at the time of this posting, so some information may be slightly dated.
+
+\subsection{Active Block Modifiers}
+The first thing I learned was that the mod's trees were using something called an Active Block Modifier (ABM) in order to trigger their growth.  The idea is pretty simple: after a certain amount of time has passed then the tree has a chance to grow.  If it doesn't grow, it waits the same amount of time again before again having the same chance to grow, ad infinitum.  An example definition is as follows:
+\begin{verbatim}
+	minetest.register_abm({
+	        nodenames = {"farming_plus:orange_sapling"},
+	        interval = 60,
+	        chance = 20,
+	        action = function(pos, node)
+	                farming_plus.generate_tree(pos, "farming_plus:orange_tree", "farming_plus:orange_leaves", {"default:dirt", "default:dirt_with_grass"}, "farming_plus:orange", 20)
+	        end
+	})
+\end{verbatim}
+\texttt{nodenames} are the nodes affected by the ABM, the amount of time that has to pass is the \texttt{interval}, the likelihood of growing is the \texttt{chance}, and the function for growing the tree is the \texttt{action}.  The interval is measured in seconds, while the chance is actually an inverse value, that is, the chance is measured as 1 divided by the value of chance.  For the mod's tree growth, the value of the interval was 60, meaning the tree had a chance to grow every minute, and the value of chance was 20, meaning there was a 1 in 20, or 5\%, chance that it would grow; thus each tree had a 5\% chance to grow every minute.  So, when I'd harvest 20+ trees over a few minutes it was no wonder that a few would grow while I was still harvesting them.
+
+\subsection{Node Timer}
+Having learned how the mod was growing trees, I dug into the game's source code (technically the source code for the \texttt{default} mod in \texttt{minetest_game}, not the Minetest source code itself) and found in \texttt{mods/default/trees.lua} that the default trees were using a Node Timer object for growth.  This per-node object allows one to trigger a function callback after a certain time period.  In order to add the timer's callback to my saplings I modified the \texttt{register_node} function which created my saplings to include an \texttt{on_timer} field whose value was the callback function for growth; in addition, I added an \texttt{on_construct} field which would start the timer when the tree's corresponding sapling was placed (constructed) with a randomized interval (with min and max values taken from the default trees).  The additions thus looked like:
+\begin{verbatim}
+	minetest.register_node("farming_plus:orange_sapling", {
+		...
+	        on_timer = function(pos)
+	                farming_plus.generate_tree(pos, "farming_plus:orange_tree", "farming_plus:orange_leaves", {"default:dirt", "default:dirt_with_grass"}, "farming_plus:orange", 20)
+	        end,
+	        on_construct = function(pos)
+	                minetest.get_node_timer(pos):start(math.random(2400,4800))
+	        end,
+	})
+\end{verbatim}
+This meant that trees would then grow after 40 to 80 minutes (2400 to 4800 seconds, respectively), making growth generally much longer than the previous duration but also normalizing the growth rate.  There's a caveat, though: suppose that the \texttt{on_timer} function is called but the tree doesn't grow because it's too dark out or some other reason.  In that case the timer would be deactivated and the tree would never grow even if conditions changed; this meant that it was necessary to also reset the timer in the \texttt{generate_tree} function (again, using the values from the default trees):
+\begin{verbatim}
+        if cant_grow then
+                minetest.get_node_timer(pos):start(math.random(240, 600))
+                return
+        end
+\end{verbatim}
+In this case \texttt{cant_grow} is a bool which, obviously, has been set based on whether or not the tree can grow.
+
+So far, both newly-created saplings and saplings with bad growth conditions are covered, but there's one more rather subtle case left uncovered: saplings which were created before the change to timer-based growth were made.  It turns out that the timer definition actually applies to saplings retroactively, but the timer isn't activated and so they will never grow!  In order to combat this I applied something called a Loading Block Modifier (LBM); what this does it that, each time an area with the specified nodes (in this case, saplings) is loaded, the specified action is applied to those nodes (in this case, causing the saplings to grow into their corresponding tree).  Hence, I added the following code:
+\begin{verbatim}
+	minetest.register_lbm({
+	        name = "farming_plus:sapling_growth",
+	        nodenames = {"farming_plus:banana_sapling",
+	                "farming_plus:cocoa_sapling",
+	                "farming_plus:cherry_sapling",
+	                "farming_plus:orange_sapling"},
+	        run_at_every_load = true,
+	        action = function(pos)
+	                local timer = minetest.get_node_timer(pos)
+	                if timer:is_started() == false then
+	                        timer:start(math.random(2400, 4800))
+	                end
+	        end
+	})
+\end{verbatim}
+The \texttt{nodenames} field contains each node that will be affected by the LBM, the \texttt{run_at_every_load} field ensures that the LBM will actually be run for current blocks, and the \texttt{action} is the function to run on the loaded blocks.  The important thing here is not to interfere with saplings whose growth timer has already been started.  Thankfully, the timer provides an \texttt{is_started} method in order to check this; if the timer is not started, then, since older saplings will regardless have the growth timer attached to them, simply start the timer with the usual values.  Interestingly enough, the game engine, as of this writing, works in such a way that: the timer is started, the time since the last load of the area is calculated, and then the time past is decremented from the timer.  What this means is that a sapling may be triggered on the first load of an area if sufficient time has passed, rather than the first load simply triggering the timer and the corresponding wait.  That's pretty satisfying, actually.
+
+\subsection{Comparison}
+It's worth comparing the growth chance of the two methods with respect to time.  A graph of the methods with their corresponding values is as follows (assuming ideal growing conditions):
+
+\begin{figure}
+\includegraphics{files/blog/2019_03_31_tree_growth_in_minetest/2019_03_31_growth.png}
+\end{figure}
+
+The values used in both the ABM and Node Timer methods predispose the ABM method to early growth, but what's important here is actually the \emph{shape} of the two methods' rate.  As you can see, the ABM method has a chance of ultra-early growth and a slight chance of ultra-late growth.  The Node Timer method, on the other hand, has no chance of early or late growth.  This will be the case for both growth methods regardless of the values used for growth time.  As stated before, I prefer the latter due to its consistency.
+
+\subsection{Conclusion}
+Thus the transition from ABMs to Node Timers was complete, and tree growth was now consistent between the mod and the default game.  The commit can be found \htmladdnormallink{here}{https://github.com/clinew/farming_plus/commit/087127f2bc6e55cd15226e15e576a5f72a2741ca} (astute readers may notice a discrepancy between the date of the commit and this blog; indeed, I had created the initial version of the patch on my local copy of the repo at the date of the patch, but did not fix the LBM bug it had and publish it until recently).  Now, hopefully when I migrate to the newer game version nothing will break\ldots
+
+
 % Pillars of Eternity: Path of the Damned, Act IV
 \section{2019-03-17 Pillars of Eternity: Path of the Damned, Act IV}
 I was lying about jumping down the pit next.  First, I had some unfinished business with Lord Gathbin, followed by a brutal fight with the Master Below, before actually jumping down the pit towards Thaos.

@@ -5,3 +5,5 @@
 *.log
 *.toc
 website
+# FIXME: Find way to ignore all files specified as graph output in the makefile.
+files/blog/2019_03_31_tree_growth_in_minetest/2019_03_31_growth.png

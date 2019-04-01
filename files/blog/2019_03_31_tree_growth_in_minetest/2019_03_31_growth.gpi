@@ -1,0 +1,11 @@
+set title "ABM vs. Node Timer: Sapling Growth Probability"
+set sample 121
+set key left top
+set yrange [-0.1:1.1]
+set xlabel "Time (minutes)"
+set ylabel "Growth probability"
+set grid
+set terminal png
+nt(x) = x <= 40 ? 0 : x >= 80 ? 1 : 1-((80-x)/40)
+plot [0:120] 1-0.95**x title "ABM", \
+	[0:120] nt(x) title "Node Timer"

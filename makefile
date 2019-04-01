@@ -1,18 +1,23 @@
 file=website
+graph_files=files/blog/2019_03_31_tree_growth_in_minetest/2019_03_31_growth
+graphs=${graph_files:=.png}
 l2hflags=-local_icons -white -top_navigation -info 0
 segments=about blurbs
 
-all: index ${segments} blog contact tutor
+all: ${graphs} index ${segments} blog contact tutor
 
 index:
 	latex ${file}.tex
 	latex2html ${l2hflags} -link 0 ${file}
 
+${graphs}: %.png: %.gpi
+	gnuplot $<  > $@
+
 ${segments}: %: %.tex
 	mkdir -p website/$@
 	latex2html ${l2hflags} -split 2 -link 0 -dir website/$@ $@
 
-blog: blog.tex
+blog: ${graphs} blog.tex
 	mkdir -p website/blog
 	latex2html ${l2hflags} -split 4 -link 1 -custom_titles -reuse 1 -dir website/blog blog.tex
 
@@ -32,6 +37,7 @@ install: tidy
 
 clean:
 	rm -rf website/
+	rm -f ${graphs}
 
 tidy:
 	find website -name WARNINGS -delete
