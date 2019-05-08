@@ -18,6 +18,356 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+% Recompiling the Novena Linux Kernel Woes
+\section{2019-05-07 Recompiling the Novena Linux Kernel Woes}
+Normally when I have kernel problems they happen during a kernel upgrade, but not this time.  In fact, I'm not even sure \emph{when} the issues started happening.  Everything seemed fine at first, until one day when I tried to mount a USB storage device only to find that it wasn't working; instead, I got an error along the following lines (except not the \texttt{ipv6} module, obviously):
+
+\begin{quote}
+\begin{verbatim}
+	[  622.972948] ipv6: no symbol version for module_layout
+\end{verbatim}
+\end{quote}
+
+What could have caused this?  I'd done several major system upgrades since last time I recall modules working, but more suspect was the \texttt{CHOST} \htmladdnormallink{change}{https://www.gentoo.org/support/news-items/2018-09-07-arm-17-profile-migration.html}.  Well, it wasn't (and still isn't) clear to me exactly how much the \texttt{CHOST} change might affect the kernel, so the simplest solution would be to simply recompile the kernel, right?  That's when this happened:
+
+\begin{quote}
+\begin{verbatim}
+	  CC      kernel/fork.o
+	In file included from include/linux/kernel.h:11,
+	                 from include/asm-generic/bug.h:13,
+	                 from ./arch/arm/include/asm/bug.h:59,
+	                 from include/linux/bug.h:4,
+	                 from include/linux/mmdebug.h:4,
+	                 from include/linux/gfp.h:4,
+	                 from include/linux/slab.h:14,
+	                 from kernel/fork.c:14:
+	include/linux/log2.h:22:1: warning: ignoring attribute 'noreturn' because it  \
+	conflicts with attribute 'const' [-Wattributes]
+	 int ____ilog2_NaN(void);
+	 ^~~
+	In file included from kernel/fork.c:41:
+	include/linux/syscalls.h:195:18: warning: 'sys_set_tid_address' alias between \
+	functions of incompatible types 'long int(int *)' and 'long int(long int)'    \
+	[-Wattribute-alias]
+	  asmlinkage long sys##name(__MAP(x,__SC_DECL,__VA_ARGS__)) \
+	                  ^~~
+	include/linux/syscalls.h:191:2: note: in expansion of macro '__SYSCALL_DEFINEx'
+	  __SYSCALL_DEFINEx(x, sname, __VA_ARGS__)
+	  ^~~~~~~~~~~~~~~~~
+	include/linux/syscalls.h:182:36: note: in expansion of macro 'SYSCALL_DEFINEx'
+	 #define SYSCALL_DEFINE1(name, ...) SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)
+	                                    ^~~~~~~~~~~~~~~
+	kernel/fork.c:1236:1: note: in expansion of macro 'SYSCALL_DEFINE1'
+	 SYSCALL_DEFINE1(set_tid_address, int __user *, tidptr)
+	 ^~~~~~~~~~~~~~~
+	include/linux/syscalls.h:199:18: note: aliased declaration here
+	  asmlinkage long SyS##name(__MAP(x,__SC_LONG,__VA_ARGS__)) \
+	                  ^~~
+	include/linux/syscalls.h:191:2: note: in expansion of macro '__SYSCALL_DEFINEx'
+	  __SYSCALL_DEFINEx(x, sname, __VA_ARGS__)
+	  ^~~~~~~~~~~~~~~~~
+	include/linux/syscalls.h:182:36: note: in expansion of macro 'SYSCALL_DEFINEx'
+	 #define SYSCALL_DEFINE1(name, ...) SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)
+	                                    ^~~~~~~~~~~~~~~
+	kernel/fork.c:1236:1: note: in expansion of macro 'SYSCALL_DEFINE1'
+	 SYSCALL_DEFINE1(set_tid_address, int __user *, tidptr)
+	 ^~~~~~~~~~~~~~~
+	include/linux/syscalls.h:195:18: warning: 'sys_unshare' alias between functions \
+	of incompatible types 'long int(long unsigned int)' and 'long int(long int)' \
+	[-Wattribute-alias]
+	  asmlinkage long sys##name(__MAP(x,__SC_DECL,__VA_ARGS__)) \
+	                  ^~~
+	include/linux/syscalls.h:191:2: note: in expansion of macro '__SYSCALL_DEFINEx'
+	  __SYSCALL_DEFINEx(x, sname, __VA_ARGS__)
+	  ^~~~~~~~~~~~~~~~~
+	include/linux/syscalls.h:182:36: note: in expansion of macro 'SYSCALL_DEFINEx'
+	 #define SYSCALL_DEFINE1(name, ...) SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)
+	                                    ^~~~~~~~~~~~~~~
+	kernel/fork.c:2000:1: note: in expansion of macro 'SYSCALL_DEFINE1'
+	 SYSCALL_DEFINE1(unshare, unsigned long, unshare_flags)
+	 ^~~~~~~~~~~~~~~
+	include/linux/syscalls.h:199:18: note: aliased declaration here
+	  asmlinkage long SyS##name(__MAP(x,__SC_LONG,__VA_ARGS__)) \
+	                  ^~~
+	include/linux/syscalls.h:191:2: note: in expansion of macro '__SYSCALL_DEFINEx'
+	  __SYSCALL_DEFINEx(x, sname, __VA_ARGS__)
+	  ^~~~~~~~~~~~~~~~~
+	include/linux/syscalls.h:182:36: note: in expansion of macro 'SYSCALL_DEFINEx'
+	 #define SYSCALL_DEFINE1(name, ...) SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)
+	                                    ^~~~~~~~~~~~~~~
+	kernel/fork.c:2000:1: note: in expansion of macro 'SYSCALL_DEFINE1'
+	 SYSCALL_DEFINE1(unshare, unsigned long, unshare_flags)
+	 ^~~~~~~~~~~~~~~
+	include/linux/syscalls.h:195:18: warning: 'sys_clone' alias between functions \
+	of incompatible types 'long int(long unsigned int,  long unsigned int,  int *, \
+	long unsigned int,  int *)' and 'long int(long int,  long int,  long int,  \
+	long int,  long int)' [-Wattribute-alias]
+	  asmlinkage long sys##name(__MAP(x,__SC_DECL,__VA_ARGS__)) \
+	                  ^~~
+	include/linux/syscalls.h:191:2: note: in expansion of macro '__SYSCALL_DEFINEx'
+	  __SYSCALL_DEFINEx(x, sname, __VA_ARGS__)
+	  ^~~~~~~~~~~~~~~~~
+	include/linux/syscalls.h:186:36: note: in expansion of macro 'SYSCALL_DEFINEx'
+	 #define SYSCALL_DEFINE5(name, ...) SYSCALL_DEFINEx(5, _##name, __VA_ARGS__)
+	                                    ^~~~~~~~~~~~~~~
+	kernel/fork.c:1849:1: note: in expansion of macro 'SYSCALL_DEFINE5'
+	 SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
+	 ^~~~~~~~~~~~~~~
+	include/linux/syscalls.h:199:18: note: aliased declaration here
+	  asmlinkage long SyS##name(__MAP(x,__SC_LONG,__VA_ARGS__)) \
+	                  ^~~
+	include/linux/syscalls.h:191:2: note: in expansion of macro '__SYSCALL_DEFINEx'
+	  __SYSCALL_DEFINEx(x, sname, __VA_ARGS__)
+	  ^~~~~~~~~~~~~~~~~
+	include/linux/syscalls.h:186:36: note: in expansion of macro 'SYSCALL_DEFINEx'
+	 #define SYSCALL_DEFINE5(name, ...) SYSCALL_DEFINEx(5, _##name, __VA_ARGS__)
+	                                    ^~~~~~~~~~~~~~~
+	kernel/fork.c:1849:1: note: in expansion of macro 'SYSCALL_DEFINE5'
+	 SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
+	 ^~~~~~~~~~~~~~~
+	/tmp/ccxt2fNN.s: Assembler messages:
+	/tmp/ccxt2fNN.s:5608: Error: .err encountered
+	make[1]: *** [scripts/Makefile.build:290: kernel/fork.o] Error 1
+	make: *** [Makefile:987: kernel] Error 2
+\end{verbatim}
+\end{quote}
+
+"Oh, a system call error, this will be an easy fix", said no one, ever.  At this point I decided to run away screaming from the problem, but, after many months, I eventually got tired of not being able to use modules (or compile them into the kernel) and decided to buckle down and fix the problem.  As I suspected, it took a lot of guesswork.
+
+\subsection{Troubleshooting}
+
+I decided to begin by looking for low-hanging fruit.  Perhaps some simple configuration options, or a forgotten PEBKAC.  One hopeful candidate was to enable the \texttt{CONFIG_OABI_COMPAT} option, but it didn't help.  The next was to save the \texttt{.config} file, then re-emerge the kernel sources, you know, in case it had become\ldots~corrupted.  Or something.  That also failed to solve the problem.  The easy stuff was out, so it was time to look at the source.  The system call definitions in the file \texttt{include/linux/syscalls.h} showed:
+
+\begin{quote}
+\begin{verbatim}
+	#define SYSCALL_DEFINE1(name, ...) SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)
+	#define SYSCALL_DEFINE2(name, ...) SYSCALL_DEFINEx(2, _##name, __VA_ARGS__)
+	#define SYSCALL_DEFINE3(name, ...) SYSCALL_DEFINEx(3, _##name, __VA_ARGS__)
+	#define SYSCALL_DEFINE4(name, ...) SYSCALL_DEFINEx(4, _##name, __VA_ARGS__)
+	#define SYSCALL_DEFINE5(name, ...) SYSCALL_DEFINEx(5, _##name, __VA_ARGS__)
+	#define SYSCALL_DEFINE6(name, ...) SYSCALL_DEFINEx(6, _##name, __VA_ARGS__)
+
+	#define SYSCALL_DEFINEx(x, sname, ...)				\
+		SYSCALL_METADATA(sname, x, __VA_ARGS__)			\
+		__SYSCALL_DEFINEx(x, sname, __VA_ARGS__)
+
+	#define __PROTECT(...) asmlinkage_protect(__VA_ARGS__)
+	#define __SYSCALL_DEFINEx(x, name, ...)					\
+		asmlinkage long sys##name(__MAP(x,__SC_DECL,__VA_ARGS__))	\
+			__attribute__((alias(__stringify(SyS##name))));		\
+		static inline long SYSC##name(__MAP(x,__SC_DECL,__VA_ARGS__));	\
+		asmlinkage long SyS##name(__MAP(x,__SC_LONG,__VA_ARGS__));	\
+		asmlinkage long SyS##name(__MAP(x,__SC_LONG,__VA_ARGS__))	\
+		{								\
+			long ret = SYSC##name(__MAP(x,__SC_CAST,__VA_ARGS__));	\
+			__MAP(x,__SC_TEST,__VA_ARGS__);				\
+			__PROTECT(x, ret,__MAP(x,__SC_ARGS,__VA_ARGS__));	\
+			return ret;						\
+		}								\
+		static inline long SYSC##name(__MAP(x,__SC_DECL,__VA_ARGS__))
+\end{verbatim}
+\end{quote}
+
+\ldots and the clone system call definition in \texttt{kernel/fork.c} was:
+
+\begin{quote}
+\begin{verbatim}
+#ifdef __ARCH_WANT_SYS_CLONE
+#ifdef CONFIG_CLONE_BACKWARDS
+SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
+		 int __user *, parent_tidptr,
+		 unsigned long, tls,
+		 int __user *, child_tidptr)
+#elif defined(CONFIG_CLONE_BACKWARDS2)
+SYSCALL_DEFINE5(clone, unsigned long, newsp, unsigned long, clone_flags,
+		 int __user *, parent_tidptr,
+		 int __user *, child_tidptr,
+		 unsigned long, tls)
+#elif defined(CONFIG_CLONE_BACKWARDS3)
+SYSCALL_DEFINE6(clone, unsigned long, clone_flags, unsigned long, newsp,
+		int, stack_size,
+		int __user *, parent_tidptr,
+		int __user *, child_tidptr,
+		unsigned long, tls)
+#else
+SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
+		 int __user *, parent_tidptr,
+		 int __user *, child_tidptr,
+		 unsigned long, tls)
+#endif
+{
+	return _do_fork(clone_flags, newsp, 0, parent_tidptr, child_tidptr, tls);
+}
+#endif
+\end{verbatim}
+\end{quote}
+
+I spent a good amount of time staring at this code, and still didn't truly understand it.  The macros existed in order to define system calls, with the various numbers corresponding to the number of arguments passed to the system call.  The other stuff?  Dragons.  Looking at the "backwards" cloning showed that it wasn't really a toggleable option, though an amusing comment was left in \texttt{arch/Kconfig}: "\texttt{# ABI hall of shame}".  I couldn't glean any clues from staring at the code, so I decided to switch gears towards the \htmladdnormallink{Novena patchset}{https://github.com/clinew/novena-kernel-patches/releases/tag/v4.7.2-r1} in order to see if any of those patches may have tweaked the system call code.  They didn't, and I couldn't find any clues.  Perhaps, because the kernel was old, the \texttt{CHOST} change had not taken effect in the kernel and was mismatched with the system?  A \texttt{grep} through the source code showed the opposite; the kernel had changed way before my user space had!  An Internet search returned this \htmladdnormallink{mail thread}{https://lkml.org/lkml/2018/6/30/143} which showed a similar error, but \texttt{KCOV} wasn't enabled in my kernel, so it was also a dead end.
+
+Stumped, I decided that, surely, someone else must have run into the issue and had probably already fixed the issue in a later kernel.  Looking at the latest source, \texttt{v5.1-rc6} at the time, showed that the system calls had changed to:
+
+\begin{quote}
+\begin{verbatim}
+	/*
+	 * The asmlinkage stub is aliased to a function named __se_sys_*() which
+	 * sign-extends 32-bit ints to longs whenever needed. The actual work is
+	 * done within __do_sys_*().
+	 */
+	#ifndef __SYSCALL_DEFINEx
+	#define __SYSCALL_DEFINEx(x, name, ...)					\
+		__diag_push();							\
+		__diag_ignore(GCC, 8, "-Wattribute-alias",			\
+			      "Type aliasing is used to sanitize syscall arguments");\
+		asmlinkage long sys##name(__MAP(x,__SC_DECL,__VA_ARGS__))	\
+			__attribute__((alias(__stringify(__se_sys##name))));	\
+		ALLOW_ERROR_INJECTION(sys##name, ERRNO);			\
+		static inline long __do_sys##name(__MAP(x,__SC_DECL,__VA_ARGS__));\
+		asmlinkage long __se_sys##name(__MAP(x,__SC_LONG,__VA_ARGS__));	\
+		asmlinkage long __se_sys##name(__MAP(x,__SC_LONG,__VA_ARGS__))	\
+		{								\
+			long ret = __do_sys##name(__MAP(x,__SC_CAST,__VA_ARGS__));\
+			__MAP(x,__SC_TEST,__VA_ARGS__);				\
+			__PROTECT(x, ret,__MAP(x,__SC_ARGS,__VA_ARGS__));	\
+			return ret;						\
+		}								\
+		__diag_pop();							\
+		static inline long __do_sys##name(__MAP(x,__SC_DECL,__VA_ARGS__))
+	#endif /* __SYSCALL_DEFINEx */
+\end{verbatim}
+\end{quote}
+
+This is a fair bit of churn, but it could be divided into at least 3 changes: 1) the \texttt{__diag} functions, 2) the \texttt{__se_sys} and \texttt{__do_sys} macros, and the 3) \texttt{ALLOW_ERROR_INJECTION} changes.  Using \texttt{git blame} to track the relevant commits down, I found out from commit \texttt{bee20031772af3debe8cbaa234528f24c7892e8f} that the \texttt{__diag*} functions existed in order to suppress the warnings that I was seeing; helpful, but this still left me with the compilation error.  The \texttt{__se_sys*} and \texttt{__do_sys*} macro changes were simply cleanups of the syscall stubs, as documented in commit \texttt{e145242ea0df6b7d28fd7186e61d6840fa4bb06e}.  Though none of the changes so far looked like they'd break the compilation, I nonetheless tried porting the patches and re-compiling; I succeeded in porting and suppressing the warning, but still had the compilation failure.  I never looked into \texttt{ALLOW_ERROR_INJECTION} as it didn't seem relevant.
+
+Foiled once again, I decided to see if I could get the assembly code generated during compilation, as the temporary files were being cleaned up automatically after the error.  First I needed to find the build command.  It turned out that running \texttt{make V=1} increased the verbosity of the kernel compilation process enough that I could then view the commands being issued.  This is what I got:
+
+\begin{quote}
+\begin{verbatim}
+	gcc -Wp,-MD,kernel/.fork.o.d  -nostdinc -isystem \
+	/usr/lib/gcc/armv7a-unknown-linux-gnueabihf/8.2.0/include \
+	-I./arch/arm/include -Iarch/arm/include/generated/uapi \
+	-Iarch/arm/include/generated  -Iinclude -I./arch/arm/include/uapi \
+	-Iarch/arm/include/generated/uapi -I./include/uapi \
+	-Iinclude/generated/uapi -include ./include/linux/kconfig.h -D__KERNEL__ \
+	-mlittle-endian -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
+	-fno-strict-aliasing -fno-common -Werror-implicit-function-declaration \
+	-Wno-format-security -std=gnu89 -fno-dwarf2-cfi-asm -fno-omit-frame-pointer \
+	-mapcs -mno-sched-prolog -fno-ipa-sra -mabi=aapcs-linux -mno-thumb-interwork \
+	-mfpu=vfp -marm -D__LINUX_ARM_ARCH__=7 -march=armv7-a -msoft-float -Uarm \
+	-fno-delete-null-pointer-checks -O2 --param=allow-store-data-races=0 \
+	-fno-reorder-blocks -fno-ipa-cp-clone -fno-partial-inlining \
+	-Wframe-larger-than=1024 -fno-stack-protector -Wno-unused-but-set-variable \
+	-Wno-unused-const-variable -fno-omit-frame-pointer \
+	-fno-optimize-sibling-calls -fno-var-tracking-assignments -g -gdwarf-4 -pg \
+	-Wdeclaration-after-statement -Wno-pointer-sign -fno-strict-overflow \
+	-fconserve-stack -Werror=implicit-int -Werror=strict-prototypes \
+	-Werror=date-time -Werror=incompatible-pointer-types    \
+	-DKBUILD_BASENAME='"fork"'  -DKBUILD_MODNAME='"fork"' -c -o \
+	kernel/.tmp_fork.o kernel/fork.c
+\end{verbatim}
+\end{quote}
+
+Luckily for me, simply running this command alone would reproduce the issue, but I still needed to have it preserve the assembly code.  After asking in \texttt{#kosagi} on the OFTC IRC channel I was told by \texttt{Jookia} that I could use either \texttt{-E} or \texttt{-S} to get the generated code.  Using \texttt{-E} generated the preprocessor output while \texttt{-S} generated the assembler output; I saved both.  Jumping to the line in the assembly code which caused the failure I saw:
+
+\begin{quote}
+\begin{verbatim}
+	.LVL229:
+		.loc 1 931 4 is_stmt 0 view .LVU1551
+		.syntax divided
+	@ 931 "kernel/fork.c" 1
+		.ifnc r0,r0; .ifnc r0r0,fpr11; .ifnc r0r0,r11fp; .ifnc r0r0,ipr12; \
+		.ifnc r0r0,r12ip; .err; .endif; .endif; .endif; .endif; .endif
+		.ifnc r3,r2; .ifnc r3r2,fpr11; .ifnc r3r2,r11fp; .ifnc r3r2,ipr12; \
+		.ifnc r3r2,r12ip; .err; .endif; .endif; .endif; .endif; .endif
+		.ifnc r1,r1; .ifnc r1r1,fpr11; .ifnc r1r1,r11fp; .ifnc r1r1,ipr12; \
+		.ifnc r1r1,r12ip; .err; .endif; .endif; .endif; .endif; .endif
+		bl	__put_user_4
+	@ 0 "" 2
+\end{verbatim}
+\end{quote}
+
+At last, that pesky \texttt{.err} appeared!  \ldots but why?  It would seem silly to intentionally produce code which has errors in it, and, unfortunately for me, I didn't actually know ARM assembly, so the meaning of the code was beyond my immediate grasp.  I then decided to search the preprocessor for \texttt{.err} and, 'lo and behold, the file contained such mysteries as:
+
+\begin{quote}
+\begin{verbatim}
+	# 1 "./arch/arm/include/asm/compiler.h" 1
+	# 6 "./arch/arm/include/asm/div64.h" 2
+	# 32 "./arch/arm/include/asm/div64.h"
+	static inline __attribute__((always_inline)) \
+	__attribute__((no_instrument_function)) uint32_t __div64_32(uint64_t *n, \
+	uint32_t base)
+	{
+	 register unsigned int __base asm("r4") = base;
+	 register unsigned long long __n asm("r0") = *n;
+	 register unsigned long long __res asm("r2");
+	 register unsigned int __rem asm("r1");
+	 asm( ".ifnc " "%0" "," "r1" "; " ".ifnc " "%0" "r1" ",fpr11; " ".ifnc " \
+	 "%0" "r1" ",r11fp; " ".ifnc " "%0" "r1" ",ipr12; " ".ifnc " "%0" "r1" \
+	 ",r12ip; " ".err; " ".endif; " ".endif; " ".endif; " ".endif; " ".endif\n\t"
+	  ".ifnc " "%1" "," "r2" "; " ".ifnc " "%1" "r2" ",fpr11; " ".ifnc " \
+	  "%1" "r2" ",r11fp; " ".ifnc " "%1" "r2" ",ipr12; " ".ifnc " "%1" "r2" \
+	  ",r12ip; " ".err; " ".endif; " ".endif; " ".endif; " ".endif; " ".endif\n\t"
+	  ".ifnc " "%2" "," "r0" "; " ".ifnc " "%2" "r0" ",fpr11; " ".ifnc " \
+	  "%2" "r0" ",r11fp; " ".ifnc " "%2" "r0" ",ipr12; " ".ifnc " "%2" "r0" \
+	  ",r12ip; " ".err; " ".endif; " ".endif; " ".endif; " ".endif; " ".endif\n\t"
+	  ".ifnc " "%3" "," "r4" "; " ".ifnc " "%3" "r4" ",fpr11; " ".ifnc " \
+	  "%3" "r4" ",r11fp; " ".ifnc " "%3" "r4" ",ipr12; " ".ifnc " "%3" "r4" \
+	  ",r12ip; " ".err; " ".endif; " ".endif; " ".endif; " ".endif; " ".endif\n\t"
+	  "bl	__do_div64"
+	  : "=r" (__rem), "=r" (__res)
+	  : "r" (__n), "r" (__base)
+	  : "ip", "lr", "cc");
+	 *n = __res;
+	 return __rem;
+	}
+\end{verbatim}
+\end{quote}
+
+The file also contained other, far less readable, code containing \texttt{.err}, but this was easiest on the eyes.  Even more useful were the comments describing where the code had come from!  It got really interesting when I opened \texttt{arch/arm/include/asm/compiler.h} and saw:
+
+\begin{quote}
+\begin{verbatim}
+	/*
+	 * This is used to ensure the compiler did actually allocate the register we
+	 * asked it for some inline assembly sequences.  Apparently we can't trust
+	 * the compiler from one version to another so a bit of paranoia won't hurt.
+	 * This string is meant to be concatenated with the inline asm string and
+	 * will cause compilation to stop on mismatch.
+	 * (for details, see gcc PR 15089)
+	 * For compatibility with clang, we have to specifically take the equivalence
+	 * of 'r11' <-> 'fp' and 'r12' <-> 'ip' into account as well.
+	 */
+	#define __asmeq(x, y)				\
+		".ifnc " x "," y "; "			\
+		  ".ifnc " x y ",fpr11; " 		\
+		    ".ifnc " x y ",r11fp; "		\
+		      ".ifnc " x y ",ipr12; " 		\
+		        ".ifnc " x y ",r12ip; "		\
+		          ".err; "			\
+		        ".endif; "			\
+		      ".endif; "			\
+		    ".endif; "				\
+		  ".endif; "				\
+		".endif\n\t"
+\end{verbatim}
+\end{quote}
+
+There's the \texttt{.err}, and there's even a comment explaining why it's there, beautiful!  It appeared to me that the \texttt{__asmeq} macro was created in order to prevent the compiler from allocating registers used by inline ASM code in an unexpected way; when the registers are allocated unexpectedly, the code then throws an error during compilation rather than causing havoc at run time.  In addition, errors tend to occur during compiler version upgrades, thus my issues was likely a GCC upgrade that caused my kernel to begin failing compilation.  Looking at my current GCC version showed \texttt{8.2.0}, and I probably compiled the kernel on a \texttt{7.x} version.  Now I had a cause for the failures, but what was to be done about it?  Downgrading GCC might temporarily stop the problem, but a longer-term fix would be needed.
+
+\subsection{Fixing}
+
+Although I've written this blog as though it were a single debugging session, the whole ordeal took place over multiple sessions, in large part while I was both travelling to and attending LinuxFest NorthWest, and I was fortunate enough for the next bit to have a buddy, \texttt{wmww}, helping me out during the following session.  After explaining the problem to him as best I could, the first breakthrough idea he had was to simply remove the \texttt{.err} from the code and see if it would compile.  Sure enough, it did, and we now had hard evidence that this code indeed was causing the issue.  So, where exactly was it being called?  We began by commenting out all \texttt{__asmeq} assertions in the \texttt{div64.h} file mentioned in the preprocessor output, but still got the same error!  A quick \texttt{grep} through the ARM ASM code showed that this macro was also being used in \texttt{arch/arm/include/asm/uaccess.h} and a subsequent look at the preprocessor output showed that this header was also being used in the code.  After a bit of searching we finally found that the \texttt{__asmeq("\%2", "r2")} call in \verb|#define __put_user_x(__r2, __p, __e, __l, __s)| was causing the issue.
+
+Having found the issue, the question then remained regarding what to do about it.  The solution was to check an upstream version of the file for patches, of course.  We eventually found commit \texttt{9f73bd8bb445e0cbe4bcef6d4cfc788f1e184007}, which refactored the macro definition into an existing function.  At first this might not seem like a fix, but earlier we had stumbled across a \htmladdnormallink{bug report}{https://bugs.linaro.org/show_bug.cgi?id=1115} which showed that registers may be mis-allocated unless the variables used in the inline ASM are wrapped in a special \texttt{asm()} macro\ldots~or something; the patch, by refactoring the code, placed the variables used in such a macro.  We cherry-picked this patch into our source, then, over a couple of hours, successfully compiled the kernel!  A quick boot into the kernel was also successful, but, alas, the modules refused to load with a \verb|[ 3174.430135] ipv6: Unknown symbol _GLOBAL_OFFSET_TABLE_ (err 0)| error.  Nonetheless, we had solved the original issue, and, it being 1 a.m. by this time, \texttt{wmww} and I departed so that we could get some sleep.
+
+Thankfully the remaining issue was simple enough to workaround.  The issue was that the modules were being compiled as Position Independent Code (PIC) but didn't have the necessary data to load properly.  The workaround was to simply disable PIC by adding \texttt{-fno-pic} to \texttt{CFLAGS_MODULE} in the kernel's base \texttt{Makefile}.  A quick recompilation later and, at last, I had kernel modules once again!
+
+With the problem solved, I then \htmladdnormallink{updated}{https://github.com/sakaki-/novena-overlay/commit/8f88536ebcd4fc107b75a97006a8447628d08638} the ebuilds for the Novena overlay, and the issue was finally over.  Given how difficult it was to track that solution down for the \emph{same} kernel version, though, and my luck with kernel upgrades, I can only image what the next \emph{upgrade} is going to be like!
+
+\subsection{Addendum}
+Special thanks to \texttt{Jookia} and \texttt{wmww} for the help.
+
+
+% Tree Growth in Minetest
 \section{2019-03-31 Tree Growth in Minetest}
 There is a quaint mod that I like to run on my Minetest world which adds a few extra trees and plants to the world, such as orange trees.
 
