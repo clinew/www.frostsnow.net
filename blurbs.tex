@@ -6,6 +6,9 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2019-05-26}
+I managed to fix the tearing I was experiencing when using \texttt{mplayer} by changing the video output device with \texttt{-vo gl}; the default was \texttt{xv}.  A list of available devices can be gotten by \texttt{-vo help}.  I was also able to change the default by adding \texttt{vo=gl} to \verb|~/.mplayer/config|.
+
 \subsection{2019-05-04}
 Workaround for the Firefox add-on signature verification failures: \texttt{xpinstall.signatures.required} to \texttt{false}.  Warning: this is \emph{insecure} and you do so at your own risk.
 
