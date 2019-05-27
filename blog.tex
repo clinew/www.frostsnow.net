@@ -18,6 +18,87 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+% Adding the InspIRCd v3 ebuild
+\section{2019-05-27 Adding the InspIRCd v3 ebuild}
+Version 3 of InspIRCd has many changes, and, as proxy-maintainer, I have the responsibility of updating the ebuild.  In order to do this, I began by getting the old ebuild to work without \texttt{USE} flag modifications, then I began updating the \texttt{USE} flags, and finally I tweaked configuration file installation and sent a PR upstream.
+
+\subsection{Getting the ebuild working}
+Earlier, I'd created a v3 ebuild in order to test some features of mine, but it was a hack-job; I merely got the program to install without actually worrying about all the features offered and whether they'd changed.  Nonetheless, getting the program to install is always a good start, so this is how I began.  The first issue I ran into was expected: there is a patch to the program (InspIRCd uses a custom build process, not autotools) that updates paths in the configuration and build files to what Gentoo expects, and this patch had broken on the newer version of the tool.  This isn't a particularly difficult fix, but if you're a git baby like me and don't really have a method for generating diffs outside of version control this process can be rather awkward as it isn't really feasible to just edit the patch file itself, and the source code that the patch is generated from isn't a part of the repository with the patch!  Luckily I had a cloned git repo of InspIRCd, so I attempted to apply the patch and fix it, but it turns out that simply running \texttt{git apply} will abort if the patch fails and not modify the working tree; instead I had to add the \texttt{--rej} option, giving:
+
+\begin{quote}
+\begin{verbatim}
+	git apply --rej /path/to/ebuild/files/inspircd-2.0.27-fix-path-builds.patch
+\end{verbatim}
+\end{quote}
+
+Then I was able to see what had applied with \texttt{git diff}, and then update what hadn't applied by opening up both the original and \texttt{.rej} files and editing the original based on what the \texttt{.rej} file was trying to do.  Once I had incorporated all of the changes from the \texttt{.rej} file, I could generate a patch with:
+
+\begin{quote}
+\begin{verbatim}
+	git diff > /path/to/ebuild/files/inspircd-3.0.1-fix-path-builds.patch
+\end{verbatim}
+\end{quote}
+
+Once the patch was in-place, the ebuild was successfully compiled and merged (in Gentoo terminology, after \emph{compilation} and \emph{installation}, a package is \emph{merged} into the live system), but the service wouldn't actually start!  After some digging I figured out that the v3 build process was setting the permission bits to \texttt{0750} for the main program and \texttt{0640} for the modules; this caused problems because the program was installed as \texttt{root} but the service tried to run the program as the \texttt{inspircd} user.  Looking at the configuration script showed me that I could supply \texttt{--uid} and \texttt{--gid} options, so I added them to the \texttt{src_configure()} stage and it built and ran successfully, but then I started to have second thoughts: the other programs under \texttt{/usr/bin} are all run as \texttt{root}, and would I really want a rogue InspIRCd process to be able to modify its binary?  No, I would have to find a different solution.  Thus I decided to manually set the permission bits in the \texttt{src_install()} phase with the code:
+
+\begin{quote}
+\begin{verbatim}
+	fperms 0755 /usr/bin/inspircd{,-genssl}
+	fperms -R 0755 "/usr/lib64/inspircd/modules/."
+\end{verbatim}
+\end{quote}
+
+Note the ebuild-specific \texttt{fperms} in place of \texttt{chmod}; the latter modifies the image by treating the path as relative to the image directory and not the root filesystem.  After this, the program launched successfully, but there was a couple of minor things that I noticed during compile time.  First, \verb|--with-cc| was an unknown option, so I instead set the environment variable \texttt{CXX} when executing the configuration file.  Also, \verb|--enable-openssl| was reported as an unknown option; turns out it had been made into a module.  Once I'd cleaned these flags up, it was time to take a serious look at the compilation options, with an emphasis on the modules.
+
+\subsection{Updating \texttt{USE} features of the ebuild}
+The quintessential question I had when updating this ebuild was, "What modules changes will affect the ebuild?".  I began by reviewing the \htmladdnormallink{change log}{https://docs.inspircd.org/3/change-log}, but its focus was on runtime configuration, whereas mine was compile-time configuration.  Next I tried running \verb|configure --help| and from there \verb|configure --list-extras|; this gave me a list of modules which I then compared to the existing \texttt{USE} flags.  From this information I then built up the following list of flags and modules:
+
+\begin{quote}
+\begin{verbatim}
+	Existing:
+        - debug
+        - geoip -> maxminddb (m_geo_maxmind)
+        - gnutls (m_ssl_gnutls)
+        - ldap (m_ldap)
+        - mysql (m_mysql)
+        - pcre (m_regex_pcre)
+        - posix (m_regex_posix)
+        - postgres (m_pgsql)
+        - sqlite (m_sqlite3)
+        - ssl (m_ssl_openssl)
+        - tre (m_regex_tre)
+
+        New:
+        - re2 (m_regex_re2)
+        - stdlib (m_regex_stdlib)
+        - mbedtls (m_ssl_mbedtls)
+        - sslrehashsignal (m_sslrehashsignal)
+
+        Removed:
+        - ipv6
+\end{verbatim}
+\end{quote}
+
+Now that I had the list, the next question was how to test the flags.  Doing a test of each possible permutation of \texttt{USE} flags would result in an exponential number of tests, so I instead decided to try 1) compilation with no \texttt{USE} flags, 2) configuration with each \texttt{USE} flag individually, and 3) compilation with all \texttt{USE} flags.  Note that when testing each \texttt{USE} flag individually I opted to only test configuration and not compilation; this is because a full compilation for each flag would have taken very long, I'm mostly checking whether the appropriate module is enabled, and compilation will be tested well enough when all \texttt{USE} flags are enabled.  I also decided to test the existing flags before adding the new ones.
+
+Testing the ebuild via compilation was easy enough, I simply had to merge it, but testing only the configuration was a bit more tricky.  To begin with, I'd run \texttt{emerge} with the \texttt{-o} option in order to install the dependencies of the package, ensuring I had the dependencies correct.  After that I'd use the \texttt{ebuild} command in order to run a specific function of the ebuild, such as configuration.  Thus testing the configuration stage of an ebuild was done by running \texttt{ebuild /path/to/package.ebuild configure}, followed by \texttt{ebuild /path/to/package.ebuild clean} so that subsequent runs would work.  In the cases where the library I needed was already installed on my system, I was able verify that the ebuild was including the correct package with \texttt{equery b /file/to/check}; for example, in order to verify which ebuld \texttt{libssl.so} came from I ran \texttt{equery b /usr/lib/libssl.so}, which then returned \texttt{dev-libs/openssl-1.0.2r (/usr/lib64/libssl.so.1.0.0)}.
+
+Of course, things didn't quite go as smoothly as I'd hoped.  By default, the configuration stage of InspIRCd expects the user to be able to \emph{interactively} select which modules to enable and disable, but interactivity is not acceptable when running an ebuild; for this case InspIRCd allows the user to specify the \verb|--disable-interactive| argument, but there's a trick: modules must be configured in one invocation of the configure script, then a separate invocation of the script must be used to actually configure the project.  Easy enough, but, while the first invocation of the script configured the modules correctly, the second invocation would enable modules that hasn't been explicitly selected!  After digging in the code I found that, indeed, modules were automatically being enabled if their dependencies were found on the system.  After asking the developers about this one of them pointed to a \htmladdnormallink{patch}{https://github.com/inspircd/inspircd/commit/2cc524a1c6aa7af22e4c68232c5d6206c70ded4e} which added a \verb|--disable-auto-extras| option to disable module auto-selection.  I added the corresponding patch and argument to the ebuild, and things began working as expected.
+
+Many of the modules were straightforward, but a couple involved a bit more digging.  The first was the \texttt{geoip} module, which existed in v2 of InspIRCd but not v3.  After a bit of searching, I found that \texttt{libgeoip} was considered obsolete and that its replacement was \texttt{libmaxminddb}.  Both appear to do some kind of geography lookup based on the user's IP address; the library defines the protocol for accessing the data, but the actual data has both a free and a licensed version.  It sounded like a whole pile of fun that I didn't want to get involved in, so I simply renamed the \texttt{USE} flag from \texttt{geoip} to \texttt{maxminddb} and changed the dependency from \texttt{dev-libs/geoip} to \texttt{dev-libs/libmaxminddb}.
+
+Rather baffling was the \texttt{m_regex_stdlib.so} module.  It turns out that this module uses the regex library that comes with the C++11 standard, but that its support was noted in the configuration file as not compliant in GCC.  After some searching I found this \htmladdnormallink{post}{https://stackoverflow.com/questions/12530406/is-gcc-4-8-or-earlier-buggy-about-regular-expressions} which I interpreted to mean that the module would work correctly on all GCC versions >= 4.9, as well as a \htmladdnormallink{compatibility matrix}{https://gcc.gnu.org/onlinedocs/libstdc++/manual/status.html#status.iso.2011} which I found rather indecipherable; it wasn't apparent to me whether just the headers were built into GCC or if the implementation was also completed.  After some contemplation, I decided to go ahead and add \texttt{>=sys-devel/gcc-4.9.0} as a dependency to the ebuild.  I figured that perhaps I'd get a bug report in the future saying that a later version is required.
+
+The rest of the module changes were simple.  The \texttt{m_ldap.so} module activation was simplified in InspIRCd's configuration from \texttt{m_ldapauth.cpp,m_ldapoper.cpp} to simply \texttt{m_ldap.cpp}.  The \texttt{m_regex_re2.so} module corresponded to a regular expression library, called "RE2", provided by Google; it required adding the \texttt{dev-libs/re2} package as a dependency.  The \texttt{m_ssl_mbedtls.so} module allowed yet another SSL library, previously called "Polar SSL"; it required adding the \texttt{net-libs/mbedtls} dependency.  The \texttt{m_sslrehashsignal.so} library didn't require any additional dependencies; it simply allowed rehashing the SSL configuration via the \texttt{SIGUSR1} signal, whereas, previously, a logged-in IRCop would have to issue the \texttt{/rehash -ssl} command.  There was no equivalent of the \verb|--enable-ipv6| options provided in v3, but, upon the asking the devs, I was told that this flag didn't actually do anything in v2 anyways; thus I removed the \texttt{ipv6} flag from v3.  Lastly came the \texttt{debug} \texttt{USE} flag; this flag was tricky because it corresponded to setting an environment variable \texttt{INSPIRCD_DEBUG} to a numeric value during compilation time, and the exact behaviour depended on the value specified.  I could have added a number of \texttt{debug} flags, but that would have been weird and bloated, so I decided against it, but the question then remained which value would be most sensible.  It turns out that the value \texttt{1} added \texttt{-Werror} to the compilation options and would thus cause compilation failures when, say, the compiler was upgraded, so it was \htmladdnormallink{not acceptable}{https://www.youtube.com/watch?v=Oqa9tKarkNA}.  The value \texttt{3} would remove all symbols from the binary and was meant explicitly for CI, so I ended up setting on the value \texttt{2}, which would include debug symbols but also enable optimizations.
+
+Now that I'd added the \texttt{USE} flags, I also wanted to update their descriptions as \texttt{ebuild u inspircd} was showing some of the flags as \texttt{<unknown>}.  I opened up the Package Management Specification (PMS) documentation and found that I could add the flag to the \texttt{/usr/portage/profiles/use.desc} file for global use flags, and, supposedly, \texttt{/usr/portage/profiles/use.local.desc} for package-specific flags; I say "supposedly" because I was able to do so for the former, global, file but not the latter, package-specific file (the changes didn't appear to be getting picked up).  After asking for clarification in IRC, I was told to edit the \texttt{metadata.xml} file in the package's directory; this successfully updated the flags' descriptions for me.
+
+Finally, I took a bit of time to ensure that the documentation files were being installed as expected.  InspIRCd is written such that the configuration files contain most of the needed documentation in them, but as a result the files are quite lengthy; they also include a couple tricks such as "die" statements which will terminate the program if not edited out, thus ensuring that the user actually bothered to configure their server properly rather than just running it blindly.  For this reason it wasn't clear to me whether the files should be installed into \texttt{/etc} or only placed in \texttt{/usr/share/doc}; installing them into \texttt{/etc} would cause the user to have to manually update their configuration files with \texttt{etc-update}, tediously removing the "die" statements and other cruft, but not doing so meant that the user's configuration would slowly diverge from the default, which could cause confusion later-on as options are removed, renamed, and added.  In the end I decided to merge the files into \texttt{/etc} as the user could easily enough forgo updating their files, but conscientious users could then more easily keep their configurations up to date.
+
+\subsection{Merging to Mainline}
+Merging went straightforward enough.  I created a \htmladdnormallink{pull request}{https://github.com/gentoo/gentoo/pull/12027} and got some pushback against the \texttt{stdlib} and \texttt{posix} flags as their names didn't make it clear what they did, and was also told that the GCC >= 4.9 dependency was pointless because simply having it installed wouldn't mean that it was being used due to Portage's slotting mechanism, and modern versions of Gentoo require at least 6.4 anyways.  So, I prefixed both of the flags with \texttt{regex-} and removed the GCC version dependency.  While I was doing this, though, my Internet went out for 6 says, during which a new version was released, thus, when my Internet was finally restored I also bumped the version to 3.1.0, which meant that I no longer had to include the patch adding \verb|--disable-auto-extras|, as it had been included in the upgrade.  A little later my pull request was merged!  I now await the bug reports\ldots
+
+
 % Recompiling the Novena Linux Kernel Woes
 \section{2019-05-07 Recompiling the Novena Linux Kernel Woes}
 Normally when I have kernel problems they happen during a kernel upgrade, but not this time.  In fact, I'm not even sure \emph{when} the issues started happening.  Everything seemed fine at first, until one day when I tried to mount a USB storage device only to find that it wasn't working; instead, I got an error along the following lines (except not the \texttt{ipv6} module, obviously):
