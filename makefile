@@ -20,6 +20,7 @@ ${segments}: %: %.tex
 blog: ${graphs} blog.tex
 	mkdir -p website/blog
 	latex2html ${l2hflags} -split 4 -link 1 -custom_titles -reuse 1 -dir website/blog blog.tex
+	cp files/blog/2019_08_04_flashing_the_librem5_from_a_32bit_machine/2019_08_04_32bitarm.mp4 website/blog/
 
 contact: contact.tex
 	mkdir -p website/contact
