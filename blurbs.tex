@@ -6,6 +6,9 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2019-09-21}
+It appears that the \htmladdnormallink{FCC License Manager webpage}{https://wireless2.fcc.gov/UlsEntry/licManager/login.jsp} doesn't work when \texttt{network.http.sendRefererHeader} is set to \texttt{0}.
+
 \subsection{2019-08-27}
 \verb|emerge-webrsync: warning: FEATURES=webrsync-gpg is deprecated, see the make.conf(5) man page.|  Hrmph.  After a bit of searching, I found that the global \texttt{FEATURES} flag in \texttt{/etc/make.conf} was migrated to a per-repo setting in \verb|/etc/portage/repos.conf/${NAME}.conf|.  At first I tried using regular \texttt{rsync} by both setting \texttt{sync-type = rsync} and \texttt{sync-rsync-verify-metamanifest = yes} then installing \texttt{app-crypt/openpgp-keys-gentoo-release} and \texttt{app-portage/gemato}, but the cryptographic verification was extremely slow so I moved back to \texttt{webrsync} by setting \texttt{sync-type = webrsync} and \texttt{sync-webrsync-verify-signature = true} instead.
 
