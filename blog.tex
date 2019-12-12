@@ -18,6 +18,266 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+\section{2019-12-11 Tale of a TLS 1.3 Upgrade}
+``I sure hope this InspIRCd version upgrade gives me enough material for a blog'', was exactly what I was hoping \emph{wouldn't} happen.  Yet it wasn't the InspIRCd version upgrade that caused me issues, but the OpenSSL library upgrade, which added support for TLS 1.3 and slightly tweaked some old behavior.  One of these changes in behavior caused one of my \htmladdnormallink{tests}{https://github.com/clinew/inspircdtests} to begin failing, at which point I embarked on a long and meandering journey in order to figure out the issue.
+
+\subsection{The missing DSA certificate}
+
+The failing test in question was part of a series of tests that used client certificates signed by various-sized \htmladdnormallink{DSA}{https://en.wikipedia.org/wiki/Digital_Signature_Algorithm} keys in order to authenticate to the server; the server would then run special, non-standard logic that checks the client certificate key size and reject the connection if the key is too small.  In this case the minimum keysize was set for 4k DSA, but the connection with the 4k key was rejected anyways:
+
+\begin{quote}
+\begin{verbatim}
+	ERROR :Closing link: (a@127.0.0.1) [Access denied by configuration]
+	Access denied for 'dsa-4k-sha512'
+\end{verbatim}
+\end{quote}
+
+Yes, that \texttt{Access denied by configuration} log message is not very helpful and I intend to change it (eventually).  In the meantime, the server log message provided a much better diagnosis:
+
+\begin{quote}
+\begin{verbatim}
+	Fri Nov 08 2019 07:28:40 m_ssl_openssl: Invalid peer certificate chain from '127
+	.0.0.1' port '6697' ('Could not get peer certificate')
+\end{verbatim}
+\end{quote}
+
+So the certificate wasn't even being passed from client to server?  Strange.  Looking at the 2k DSA keysize test showed the same issue, only the test didn't fail because the connection was supposed to fail.  This led me to think that the connection would fail for \emph{any} DSA-signed certificate.  A \htmladdnormallink{post}{https://security.stackexchange.com/questions/44251/openssl-generate-different-types-of-self-signed-certificate} suggested that only certain DSA key sizes were supported, specifically, 3k DSA at most, but I wasn't sure how to test this hypothesis, and the test had worked before so the suggestion seemed suspect.  After playing around some more I noticed something interesting about the "signature algorithms" in use:
+
+\begin{quote}
+\begin{verbatim}
+	Requested Signature Algorithms: ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:Ed25519:E
+	d448:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA-PSS+SHA256:RSA-PSS+SHA384:
+	RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512:ECDSA+SHA224:ECDSA+SHA1:RSA+SHA2
+	24:RSA+SHA1
+	Shared Requested Signature Algorithms: ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:Ed
+	25519:Ed448:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA-PSS+SHA256:RSA-PSS+
+	SHA384:RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512
+\end{verbatim}
+\end{quote}
+
+None of the listed signature algorithms used plain DSA!  Well, while interesting, I'd need a way to tweak the signature algorithms in order to test whether this was the issue or not, and I didn't know of a quick way to do that.  Instead, as I noticed that I had been connecting with TLS 1.3 rather than 1.2 as in the past, I decided to try using the old version and seeing if that changed anything.  I quickly found \texttt{s_client}'s \texttt{-tls1_2} option, re-ran the tests, and\ldots~it worked:
+
+\begin{quote}
+\begin{verbatim}
+	Requested Signature Algorithms: ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:Ed25519:E
+	d448:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA-PSS+SHA256:RSA-PSS+SHA384:
+	RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512:ECDSA+SHA224:ECDSA+SHA1:RSA+SHA2
+	24:RSA+SHA1:DSA+SHA224:DSA+SHA1:DSA+SHA256:DSA+SHA384:DSA+SHA512
+	Shared Requested Signature Algorithms: ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:Ed
+	25519:Ed448:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA-PSS+SHA256:RSA-PSS+
+	SHA384:RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512:ECDSA+SHA224:ECDSA+SHA1:R
+	SA+SHA224:RSA+SHA1:DSA+SHA224:DSA+SHA1:DSA+SHA256:DSA+SHA384:DSA+SHA512
+\end{verbatim}
+\end{quote}
+
+Er, well, that is, it mostly worked, because \emph{now} the elliptic curve test was failing!  But at least the DSA tests were acting as expected, and I could see from the "signature algorithms" data that non-elliptic DSA signatures were now listed.  So perhaps the client didn't bother to send client certificates which weren't signed with an appropriate signature algorithm (though it would have been nice to have a warning that the client certificate would be ignored)?  Either way, it seemed that this change was brought about by the version change, so I did some searching and found \htmladdnormallink{this page}{https://wiki.openssl.org/index.php/TLS1.3#DSA_certificates} which helpfully explained that, "DSA certificates are no longer allowed in TLSv1.3.".  Well, that would certainly do it.
+
+Okay, fine, DSA keys are deprecated, and I was only using them for testing purposes so they could be disposed of easily enough.  It would be nice to have another key type with varying length that I could use for testing purposes in DSA's place, perhaps an elliptic curve key would suffice?  I then did some \htmladdnormallink{reading}{https://wiki.openssl.org/index.php/Elliptic_Curve_Cryptography} on the elliptic curve cryptography used by OpenSSL from which I gathered that elliptic curves consist of a \emph{class} of curves which then have \emph{parameters} that determine their properties.  There are many possible parameters which may be specified for curves, and the choice of parameters helps determine whether or not the curve will be cryptographically useful.  Rather than specify each parameter explicitly when using curves, certain cryptographically useful sets of parameters are \emph{named} for easy reference.  OpenSSL has the ability to encode an elliptic curve with its parameters by explicitly stating the parameters or by using a standardized name; a named curve will have an \texttt{ASN1 OID} entry in its X.509 certificate.  What I couldn't find out, however, was which named curves would be used by the \texttt{ECDSA} series of signature algorithms.  Perhaps they would all be accepted?
+
+Before trying to figure \texttt{ECDSA} out, however, I decided to begin troubleshooting why the elliptic curve test was now failing.
+
+\subsection{The missing EC certificate}
+Upon taking a closer look at the elliptic curve test, it turned out that neither version was actually working all that well:
+
+\begin{quote}
+\begin{verbatim}
+	// TLS 1.3
+	Sun Nov 24 2019 20:42:40 m_ssl_openssl: Invalid peer certificate chain from '127
+	.0.0.1' port '6697' ('Could not get peer certificate')
+	Requested Signature Algorithms: ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:Ed25519:E
+	d448:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA-PSS+SHA256:RSA-PSS+SHA384:
+	RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512:ECDSA+SHA224:ECDSA+SHA1:RSA+SHA2
+	24:RSA+SHA1
+	Shared Requested Signature Algorithms: ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:Ed
+	25519:Ed448:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA-PSS+SHA256:RSA-PSS+
+	SHA384:RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512
+	// TLS 1.2
+	Sun Nov 24 2019 21:21:14 m_ssl_openssl: OpenSSL handshake error 'error:1414D17A:
+	SSL routines:tls12_check_peer_sigalg:wrong curve' for '127.0.0.1' port '6697'
+	Requested Signature Algorithms: ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:Ed25519:E
+	d448:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA-PSS+SHA256:RSA-PSS+SHA384:
+	RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512:ECDSA+SHA224:ECDSA+SHA1:RSA+SHA2
+	24:RSA+SHA1:DSA+SHA224:DSA+SHA1:DSA+SHA256:DSA+SHA384:DSA+SHA512
+	Shared Requested Signature Algorithms: ECDSA+SHA256:ECDSA+SHA384:ECDSA+SHA512:Ed
+	25519:Ed448:RSA-PSS+SHA256:RSA-PSS+SHA384:RSA-PSS+SHA512:RSA-PSS+SHA256:RSA-PSS+
+	SHA384:RSA-PSS+SHA512:RSA+SHA256:RSA+SHA384:RSA+SHA512:ECDSA+SHA224:ECDSA+SHA1:R
+	SA+SHA224:RSA+SHA1:DSA+SHA224:DSA+SHA1:DSA+SHA256:DSA+SHA384:DSA+SHA512
+\end{verbatim}
+\end{quote}
+
+The TLS 1.3 version failed to connect because it didn't get a certificate, while the TLS 1.2 version failed to connect because of a \texttt{wrong curve} error (ironic, given the \htmlref{trouble}{2019-10-07-brainpool} I went through in order to choose a "more compatible" curve last time).  The test itself was designed such that failing to connect was the expected outcome, but neither of these failed to connect for the correct reason; the only reason I detected the new failure was because the TLS 1.2 failure instantly dropped the TLS connection rather than failing to authenticate at the IRC protocol layer.
+
+Was this another case where only certain named curves would be supported?  Searching through the TLS 1.3 RFC showed \htmladdnormallink{a subsection}{https://tools.ietf.org/html/rfc8446#section-4.2.7} detailing the \texttt{supported_groups} TLS extension, which seemed to suggest that only a select few named curves, primarily \texttt{secp} curves, were supported by default, but this was far from conclusive.  Perhaps I could get the extension data from the server?  I tried manually running \texttt{s_client} with the \texttt{-tlsextdebug} options, but the only extension of interest was:
+
+\begin{quote}
+\begin{verbatim}
+	TLS server extension "signature algorithms" (id=13), len=38
+	0000 - 00 24 04 03 05 03 06 03-08 07 08 08 08 09 08 0a   .$..............
+	0010 - 08 0b 08 04 08 05 08 06-04 01 05 01 06 01 03 03   ................
+	0020 - 02 03 03 01 02 01                                 ......
+\end{verbatim}
+\end{quote}
+
+Which seemed to be a binary form of the signature algorithms data I'd already seen in textual format earlier, so not of much use to me.  There didn't seem to be an easy way to get the extension data I was after, so I decided to run a quick test with \texttt{secp521r1} before digging in further.
+
+\subsubsection{A Quick Logging Fix}
+While testing with the \texttt{secp521r1} curve failed in the expected manner, the server's log entry didn't match the connection failure outcome; the client log showed:
+
+\begin{quote}
+\begin{verbatim}
+	ERROR :Closing link: (a@127.0.0.1) [Access denied by configuration]
+\end{verbatim}
+\end{quote}
+
+\ldots while the server log showed:
+
+\begin{quote}
+\begin{verbatim}
+	Valid peer certificate chain from '127.0.0.1' port '6697':
+	 0 s:/CN=EC-SHA512
+	   i:/CN=root_ca
+	   fp:38380e7103b7e99b8af2dec0f7fe681761f167a43196cb0c40844b9eb1b2d3cf
+	 1 s:/CN=root_ca
+	   i:/CN=root_ca
+	   fp:2f48fb88afabc45cddcd9973a1183a1fa34997deeffa1365a3908cd6d689b2cb
+\end{verbatim}
+\end{quote}
+
+So these two weren't quite lining up like they should have, and I noted that I was now three problems deep in what was hoped to be a quick upgrade.  Well, hopefully \emph{this} one would be quick.  It appeared only that the certificate was not being properly \emph{logged} as an error, though it was being properly \emph{rejected}.  I began fixing this by adding another test to the logging test suite in order to check that the certificate was being appropriately logged, then, test in hand, dove in to fix the problem proper.
+
+Since InspIRCd was designed to use multiple TLS libraries, a common certificate abstraction class, \texttt{ssl_cert}, in \texttt{modules/ssl.h} was being used by the InspIRCd's OpenSSL module in order to represent certificates.  This class had a number of members such as \texttt{trusted}, \texttt{invalid}, \texttt{unknownsigner}, \texttt{revoked}, and \texttt{exists} as well some corresponding getter methods such as \texttt{IsTrusted()}, \texttt{IsInvalid()}, \texttt{IsUnknownSigner()}, and \texttt{IsRevoked()}.  It seemed to me that the problem with my extra checks and logging was that, when the extra checks failed then the class instance's \texttt{error} member would be set, but the logging code only checked the \texttt{invalid} member via \texttt{IsInvalid()}, oops!  Perhaps it would make sense to set the \texttt{invalid} member for every error, or perhaps that would cause other, subtle issues, but I instead looked at two additional methods provided by the class: \texttt{IsUsable()} and \texttt{IsCAVerified()} instead; the former would check for a valid, unrevoked certificate without an error, while the latter called the former and also checked for a trusted certificate without an unknown signer.  Since I'd just been bitten for being too lenient, I changed the logging method from \texttt{IsInvalid()} to the strictest, \texttt{IsCAVerified()}, instead.
+
+The change in method seemed to make the problem go away, so I went back to work on figuring out the elliptic curves.
+
+\subsubsection{Elliptic Curves Continued}
+Now, where was I?  Ah, right, trying to figure out whether I could query the \texttt{supported_groups} TLS extension in order to determine which named curves could be used for client certificate signing.  I didn't have much to go on, so I began digging around in the OpenSSL source code, looking for keywords from the RFC.  Particularly telling was this entry in \texttt{ssl/t1_lib.c}:
+
+\begin{quote}
+\begin{verbatim}
+	/* The default curves */
+	static const uint16_t eccurves_default[] = {
+	    29,                      /* X25519 (29) */
+	    23,                      /* secp256r1 (23) */
+	    30,                      /* X448 (30) */
+	    25,                      /* secp521r1 (25) */
+	    24,                      /* secp384r1 (24) */
+	};
+\end{verbatim}
+\end{quote}
+
+At least I could see that none of the \texttt{brainpool} curves appeared to be in the default, but that wasn't as surefire as getting that data from a running program.  After some more digging, I found the \texttt{SSL} structure definition in OpenSSL and tried to get its values directly in InspIRCd, but got an \verb|incomplete type 'SSL' {aka struct 'ssl_st'}| error, suggesting that I wasn't allowed to access the structure directly.  With even more digging, I found the \texttt{SSL_get1_groups()} and \texttt{SSL_get_shared_group()} API functions which would allow me to get the groups sent and the groups that the client and server shared, respectively, but\ldots~what about the groups sent by the server?  Oddly enough, I couldn't find a way to do this.
+
+Working with what I had so far, I found that the client was indeed sending \texttt{X25519}, \texttt{prime256v1}, \texttt{X448}, \texttt{secp521r1}, and \texttt{secp384r1}, but only \texttt{prime256v1} was shared between server and client.  Why only one?  After some digging I found out that InspIRCd's OpenSSL module had a \texttt{ecdhcurve} setting which defaulted to \texttt{prime256v1} and called \texttt{SSL_CTX_set_tmp_ecdh()}; tweaking this setting changed which curve was reported by the server as shared.  Now that I could set the server's curves, would I also be able to set the client's?  Turned out the \texttt{s_client} program also had a \texttt{-curves} option that I could use for this purpose, so I now had all that I needed!  I then set both the server and the client to use \texttt{brainpoolP512r1}, connected successfully, and\ldots~no certificate:
+
+\begin{quote}
+\begin{verbatim}
+	// Client
+	Server Temp Key: ECDH, brainpoolP512r1, 512 bits
+	// Server log
+	m_ssl_openssl: Invalid peer certificate chain from '127.0.0.1' port '6697' ('Cou
+	ld not get peer certificate')
+\end{verbatim}
+\end{quote}
+
+Fuuu-UGH!  It seemed that \texttt{supported_groups} was not created with regards to certificate signing, but for ephemeral keys used in Diffie-Hellman.  Or something.  Alas, it appeared to be a dead end, so I went back to looking at the signature algorithms.
+
+Reading the TLS 1.3 RFC section on \htmladdnormallink{Signature Algorithms}{https://tools.ietf.org/html/rfc8446#section-4.2.3} showed extensions for both \texttt{signature_algorithms} and \texttt{signature_algorithms_cert}, but what do these tell me about the curves accepted by ECDSA signing?  As earlier, the list of signature algorithms provided by the RFC suggested that the \texttt{secp*} curves may be used, but, confusingly, the names of the signature algorithms, such as \texttt{ecdsa_secp521r1_sha512}, did not reflect OpenSSL's output.  After more digging through the OpenSSL code, I found an array named \texttt{sigalg_lookup_tbl} of type \texttt{SIGALG_LOOKUP} with the following definition:
+
+\begin{quote}
+\begin{verbatim}
+	// Definition (ssl/ssl_locl.h)
+	/*
+	 * Structure containing table entry of values associated with the signature
+	 * algorithms (signature scheme) extension
+	*/
+	typedef struct sigalg_lookup_st {
+	    /* TLS 1.3 signature scheme name */
+	    const char *name;
+	    /* Raw value used in extension */
+	    uint16_t sigalg;
+	    /* NID of hash algorithm or NID_undef if no hash */
+	    int hash;
+	    /* Index of hash algorithm or -1 if no hash algorithm */
+	    int hash_idx;
+	    /* NID of signature algorithm */
+	    int sig;
+	    /* Index of signature algorithm */
+	    int sig_idx;
+	    /* Combined hash and signature NID, if any */
+	    int sigandhash;
+	    /* Required public key curve (ECDSA only) */
+	    int curve;
+	} SIGALG_LOOKUP;
+	// Example value (ssl/t1_lib.c)
+	{"ecdsa_secp521r1_sha512", TLSEXT_SIGALG_ecdsa_secp521r1_sha512,
+	 NID_sha512, SSL_MD_SHA512_IDX, EVP_PKEY_EC, SSL_PKEY_ECC,
+	 NID_ecdsa_with_SHA512, NID_secp521r1}
+\end{verbatim}
+\end{quote}
+
+Here I could see that some of the signature algorithms had a special name granted to them by TLS 1.3!  Perhaps this explained the mismatch between the RFC's names and OpenSSL's names?  Also telling, the \texttt{curve} attribute of the structure specified exactly which curve could be used with the signature algorithm, implying that any arbitrary curve was not acceptable.  Also interesting was that there existed NID attributes for: the hash algorithms, the signature algorithm, and the combined hash and signature algorithm.  Looking at the example entry provided above, note that the entry had NIDs for: the SHA512 hash, an EC signature algorithm, and an ECDSA signature algorithm with SHA512 hash, and, tucked into the very end of the entry is a NID for the \texttt{secp521r1} curve, implying that only that curve can be used for the signature algorithm!  From earlier work I know that the signature algorithms presented by OpenSSL are based off a two-item NID tuple: the signature type and hash algorithm.  Following \texttt{EVP_PKEY_EC} showed it returning the value \texttt{ECDSA} in \texttt{apps/s_cb.c}'s \texttt{get_sigtype()} function, and following \texttt{NID_sha512} to its Short Name (SN) in \texttt{openssl/obj_mac.h} showed its name to be \texttt{SHA512}, thus giving \texttt{ECDSA+SHA512}.
+
+That was all the evidence that I needed to feel confident that all ECDSA curves actually required a specific \texttt{secp*} curve rather than being able to work with elliptic curves in general, though I am not yet sure if this is a limitation of the \texttt{ECDSA} algorithms or a limitation of OpenSSL.  It would have been nice if the signature algorithm names more obviously reflected their elliptic curve requirements, though, and it seemed strange that this appeared to work earlier, but I decided not to dig any further.  Instead, I decided that it might be a good time to integrate the extra signature algorithm checking code that I wrote \htmlref{earlier}{2018-03-05-peer-cert-strength} into the protocol proper.
+
+\subsection{An Attempted Refactor of Client Certificate Signature Algorithms}
+Rather than hacky post-certificate receipt checks on the server end, it would be great if I could have told the client to use only certain certificate signature algorithms as part of the TLS protocol.  After reading about the \texttt{signature_algorithms_cert} extension, I decided that this may actually be possible at the protocol level and decided to take a stab at implementing it.  In fact, the documentation states to use the \texttt{signature_algorithms} extension if its \texttt{_cert} variant is not specified, so I should be able to set it at the TLS-signature level and have it affect the client certificate, right?  This was simple enough; I added a call to \texttt{SSL_CTX_set1_sigalgs_list()} with the \texttt{RSA+SHA512} argument, and was promptly rejected any connection to the server at all:
+
+\begin{quote}
+\begin{verbatim}
+	m_ssl_openssl: OpenSSL handshake error 'error:14201076: SSL routines:tls_choose
+	_sigalg:no suitable signature algorithm' for '127.0.0.1' port '6697'
+\end{verbatim}
+\end{quote}
+
+Er, okay.  I then tried \texttt{RSA-PSS+SHA512} instead, which worked.  What the heck?!  \htmladdnormallink{This post}{https://crypto.stackexchange.com/questions/58680/whats-the-difference-between-rsa-pss-pss-and-rsa-pss-rsae-schemes} appeared to try and explain.  I read this post a couple of times, and still didn't understand it.  It seemed to have something to do with what the key could be used for?  Looking a little deeper showed that \texttt{RSA+SHA512} signature algorithm corresponded to the \texttt{rsa_pkcs1_sha512} algorithm in the RFC, and that the algorithm could only be used for certificates and not for signing TLS messages; this would explain why the TLS handshake would not complete when this was the only available signature algorithm.  The RFC also mentioned another distinction between kinds of RSA algorithms: \texttt{RSASSA-PSS RSAE} and \texttt{RSASSA-PSS PSS}.  Which one was specified by OpenSSL's \texttt{RSA-PSS}?  I never found out; they looked identical with regards to their hash and key NIDs in \texttt{sigalg_lookup_tbl}, so I decided to move on and see if at least the hash specifications would work as I expected them to.
+
+After running my tests, I got my answer back: no.  The server seemed content to use whatever hash the certificate had provided.  Okay, fine, maybe it was a bug, a backwards-compatibility hack, or something I didn't understand about TLS; instead of fighting the \texttt{signature_algorithms} extension longer, I decided to see if I could get the server to send the \texttt{signature_algorithms_cert} extension.  Despite searching a while, I couldn't find an API call to set this extension; the closest I came up with was \texttt{SSL_CTX_set1_client_sigalgs()}, but that didn't work.  Searching for a generic TLS extensions API, I found the man page for \texttt{SSL_extension_supported()} and \texttt{SSL_CTX_add_server_custom_ext()}; this looked like complex overkill, but I tried a simple implementation and got no results back.  As I studied the man pages for the API calls, I noticed the following two snippets:
+
+\begin{quote}
+\begin{verbatim}
+	// Sample #1
+	For the ServerHello and EncryptedExtension messages every registered
+	add_cb is called once if and only if the requirements of the specified
+	context are met and the corresponding extension was received in the
+	ClientHello. That is, if no corresponding extension was received in the
+	ClientHello then add_cb will not be called.
+	// Sample #2
+	If the same custom extension type is received multiple times a fatal
+	decode_error alert is sent and the handshake aborts. If a custom
+	extension is received in a ServerHello/EncryptedExtensions message
+	which was not sent in the ClientHello a fatal unsupported_extension
+	alert is sent and the handshake is aborted. The
+	ServerHello/EncryptedExtensions add_cb callback is only called if the
+	corresponding extension was received in the ClientHello. This is
+	compliant with the TLS specifications. This behaviour ensures that each
+	callback is called at most once and that an application can never send
+	unsolicited extensions.
+\end{verbatim}
+\end{quote}
+
+Now, if I was reading this properly, it meant that the \texttt{signature_algorithms_cert} extension won't be sent by the server unless the \emph{client} decides to send it?!  Uhh, okay; I did some digging and found that \texttt{s_client} had a convenient \texttt{-serverinfo} command which, when given the number of an extension, would send that extension to the server but without any data.  Since the extension number for \texttt{signature_algorithms_cert} was \texttt{50} according to \texttt{openssl/tls1.h}, I added \texttt{-serverinfo 50 -tlsextdebug} to the client connection and got back:
+
+\begin{quote}
+\begin{verbatim}
+	// Client
+        140593083266880:error:1409441A:SSL routines:ssl3_read_bytes:tlsv1 alert decode e
+        rror:ssl/record/rec_layer_s3.c:1544:SSL alert number 50
+	// Server
+        m_ssl_openssl: OpenSSL handshake error 'error:1426706E: SSL routines:tls_parse_c
+	tos_sig_algs_cert:bad extension' for '127.0.0.1' port '6697'
+\end{verbatim}
+\end{quote}
+
+Apparently OpenSSL's default callback for the extension will fail if no data is sent with it, which is reasonable, because how could a client verify the server's certificate if the client doesn't support any signature verification algorithms?  This left me with two problems: first, it seemed that I'd have to make SSL client modifications in order to send non-empty extension data, which I was hardly keen to do, just to see if I was on the right track for the complicated extension-callback addition, and, second, the previous documentation noted that this extension must be sent by \emph{client}.  What's the use of that?!  Well, I suppose the server could send a different certificate depending on what the client supports, but I wanted to specify algorithms for the client certificate, not the server.
+
+Faced with these problems, and taking into consideration all the other work I'd done for what was supposed to be a quick upgrade, I decided to call it quits.  What I had already, while hacky, would work fine for the foreseeable future.
+
+\subsection{Wrapping Up}
+One last change which I considered making was to refactor my custom key size specifications.  The grammar is of the form \texttt{TYPE:SIZE}; this works fine for RSA and DSA (er, "work\emph{ed}" for DSA), but does not allow one to distinguish between certain elliptic curve types, plus it requires one to specify a size for key types where only one size may be possible, such as \texttt{X25519} (I say "may" because OpenSSL \& TLS are clearly both full of surprises).  Perhaps a better grammar would be \verb|TYPE[:SIZE]| and \verb|TYPE:CURVE| where the latter would be invoked for keys of type \texttt{id-ecPublicKey}; this would make the size argument optional for most keys (no size meaning that any size will do), and would allow one to whitelist specific named curves explicitly (presumably named curves cannot vary in size, I hope\ldots).  This was a nice idea, but I decided not to implement it, because I was not in the mood for it.  Maybe later.
+
+So, what was the outcome of all of this?  I removed DSA keys from my tests, and didn't really replace them with anything, but that's probably okay.  Other than that, I spent many hours battling both OpenSSL and TLS, learned a bunch, and also got my butt thoroughly kicked by OpenSSL.  I will now make a hasty retreat back to the relative safety of my video games.
+
+
 % Pillars of Eternity: Path of the Damned, White March Part I
 \section{2019-08-17 Pillars of Eternity: Path of the Damned, White March Part I}
 It's been over a year since the sequel came out and I \emph{still} haven't gotten to it, but I have made good progress in the White March expansion set.  Though enjoyable, I felt that the expansion made a rather awkward addition; the first part added more lower-level areas when completionists could easily outlevel everything in the main game before the expansion, and the overall story was rather tangential to the main storyline.
@@ -2851,7 +3111,7 @@ I never did hear back from the maintainers, though I did update them letting the
 
 
 \section{2018-10-07 From Brainpool to Mindmush in OpenSSL}
-I have a series of \htmladdnormallink{tests}{https://github.com/clinew/inspircdtests} which attempt to connect to an SSL/TLS-enabled service; the tests use different types of cryptography: RSA, DSA, and EC.  When I began testing with the OpenSSL 1.1.0 series instead of the 1.0.1 series, the test which uses EC started to return an "unknown" result rather than "pass" or "fail".  Looking at the client output showed the following error message: \texttt{140379411924736:error:1409441A:SSL routines:ssl3_read_bytes:tlsv1 alert decode error:ssl/record/rec_layer_s3.c:1399:SSL alert number 50}; the server output wasn't particularly helpful: \texttt{SOCKET: Error on FD 8 - 'Read Error'}.
+I\label{2019-10-07-brainpool} have a series of \htmladdnormallink{tests}{https://github.com/clinew/inspircdtests} which attempt to connect to an SSL/TLS-enabled service; the tests use different types of cryptography: RSA, DSA, and EC.  When I began testing with the OpenSSL 1.1.0 series instead of the 1.0.1 series, the test which uses EC started to return an "unknown" result rather than "pass" or "fail".  Looking at the client output showed the following error message: \texttt{140379411924736:error:1409441A:SSL routines:ssl3_read_bytes:tlsv1 alert decode error:ssl/record/rec_layer_s3.c:1399:SSL alert number 50}; the server output wasn't particularly helpful: \texttt{SOCKET: Error on FD 8 - 'Read Error'}.
 
 This looked pretty bad, so I took some time to re-examine the test; it generates an elliptic curve using the \texttt{brainpoolP512t1} curve, which I selected through a rigorous process of running \texttt{openssl ecparam -list_curves} and then just picking one arbitrarily.  The certificate is then signed by the server's trusted root authority and then finally passed to the server by the client, at which point the protocol error occurs.  There didn't seem to be any particular wrongdoing on my end, so I filed a \htmladdnormallink{bug}{https://github.com/inspircd/inspircd/issues/1464} against the service.
 
@@ -3366,7 +3626,7 @@ Now, having finally responsibly disposed of a good amount of my junk I can final
 
 % Verifying X.509 Peer Certificate Strength
 \section{2018-03-05 Verifying X.509 Peer Certificate Strength}
-The X.509 certificates of the SSL/TLS protocol contain cryptographically-secure data, but only if the cryptographic algorithms are of sufficient strength to secure that data.  Most Certificate Authorities (CAs) that issue certificates choose relatively "weak" algorithms in order to bean-count compute cycles rather than provide extra security (for example, SHA-256 instead of SHA-512).  In addition, trying to clairvoyantly guess algorithm deprecation times by setting expiration dates on the certificate is either dangerous in the case of a lengthy expiration date, or irritating in the case of a short expiration date.  Alternatively, revoking individual, insecure certificates is tedious at best.  Rather than trust CAs, rely on expiration dates, or revoke certificates, I decided instead to implement server-side checks of client certificate strength on my InspIRCd server; specifically, I implemented checks for the public key size and signature algorithms used in the certificates.  This blog entry details the \strikeout{hacks} methods I used in implementing the checks.
+The\label{2018-03-05-peer-cert-strength} X.509 certificates of the SSL/TLS protocol contain cryptographically-secure data, but only if the cryptographic algorithms are of sufficient strength to secure that data.  Most Certificate Authorities (CAs) that issue certificates choose relatively "weak" algorithms in order to bean-count compute cycles rather than provide extra security (for example, SHA-256 instead of SHA-512).  In addition, trying to clairvoyantly guess algorithm deprecation times by setting expiration dates on the certificate is either dangerous in the case of a lengthy expiration date, or irritating in the case of a short expiration date.  Alternatively, revoking individual, insecure certificates is tedious at best.  Rather than trust CAs, rely on expiration dates, or revoke certificates, I decided instead to implement server-side checks of client certificate strength on my InspIRCd server; specifically, I implemented checks for the public key size and signature algorithms used in the certificates.  This blog entry details the \strikeout{hacks} methods I used in implementing the checks.
 
 \subsection{OpenSSL Data Structure Primer}
 First, a few notes on some of the data structures used in OpenSSL.  An \texttt{SSL_CTX} object is basically a factory for individual SSL connections which are then represented by \texttt{SSL} objects.  X.509 certificates are represented by, intuitively enough, \texttt{X509} structures.  Ciphers, hashes, and keys are represented by a set of abstract interfaces prefixed with \texttt{EVP} (\htmladdnormallink{EnVeloPe}{https://stackoverflow.com/questions/3055454/what-does-openssls-evp-mean}), thus the \texttt{EVP_PKEY} interface can be used to access the public key of a certificate; the other interfaces were not relevant to me.
