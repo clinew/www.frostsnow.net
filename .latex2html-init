@@ -8,7 +8,7 @@ $LATEX_COLOR = "\\pagecolor[RGB]{217, 217, 217}";
 
 sub top_navigation_panel {
 	# Generic website header.
-	"<h1 align=\"center\">www.frostsnow.net</h1><HR>\n" .
+	"<h1 align=\"center\">www.frostsnow.net</h1><p align=\"center\">Due to the COVID-19 outbreak, those of us at www.frostsnow.net ask users to wash their keyboards before and after visiting so as to avoid spreading the contagion to other visitors of the site.  Thank you for your understanding.<HR>\n" .
 	# Sections and navigation.
 	"<table align=\"center\">\n" .
 	# Website sections.
