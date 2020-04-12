@@ -18,6 +18,159 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+\section{2020-04-12 Replacing an Encrypted Hard Drive on a RAID-5 Array}
+This blog entry is about my attempt to replace a failing drive on my home server's amateur-encrypted RAID-5 arrays.  While replacing a failing drive isn't particularly difficult, it must be done with care, and my situation was complicated by the \htmladdnormallink{encryption scripts}{https://github.com/clinew/gscripts} I had set-up around the array.  Yet, even this was not the end of my troubles, as an unexpected problem arose in the middle of my work.
+
+\subsection{Troubleshooting with S.M.A.R.T.}
+For the past couple of months, message similar to the following had been appearing in my log about once every other week:
+
+\begin{verbatim}
+[5799854.385960] sd 1:0:0:0: [sdb] tag#0 FAILED Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE
+[5799854.385964] sd 1:0:0:0: [sdb] tag#0 Sense Key : Medium Error [current]
+[5799854.385968] sd 1:0:0:0: [sdb] tag#0 Add. Sense: Unrecovered read error - auto reallocate failed
+[5799854.385972] sd 1:0:0:0: [sdb] tag#0 CDB: Read(10) 28 00 00 84 43 28 00 00 08 00
+[5799854.385976] blk_update_request: I/O error, dev sdb, sector 8667947 op 0x0:(READ) flags 0x80700 phys_seg 1 prio class 0
+[5799855.795885] sd 1:0:0:0: [sdb] tag#0 FAILED Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE
+[5799855.795889] sd 1:0:0:0: [sdb] tag#0 Sense Key : Medium Error [current]
+[5799855.795893] sd 1:0:0:0: [sdb] tag#0 Add. Sense: Unrecovered read error - auto reallocate failed
+[5799855.795897] sd 1:0:0:0: [sdb] tag#0 CDB: Read(10) 28 00 00 84 43 28 00 00 08 00
+[5799855.795901] blk_update_request: I/O error, dev sdb, sector 8667947 op 0x0:(READ) flags 0x4000 phys_seg 1 prio class 0
+[5799856.020331] md/raid:md0: read error corrected (8 sectors at 8667944 on dm-17)
+\end{verbatim}
+
+After a couple of months the messages began to appear daily, whenever I would perform the daily system updates.  While viewing \texttt{/proc/mdstat} showed the drive as "up", I figured it would be best to replace it sooner rather than later.  Before doing that, though, I decided to play around with the \htmladdnormallink{S.M.A.R.T.}{https://en.wikipedia.org/wiki/S.M.A.R.T.} capabilities of the drive in order to see if they would diagnose the drive as in a pre-failure state.   To begin, I decided to check the health self-assessment with the \texttt{-H} option to \texttt{smartctl}:
+
+\begin{verbatim}
+hesse /home/frostsnow # smartctl -H /dev/sdb
+smartctl 7.0 2018-12-30 r4883 [x86_64-linux-5.4.13] (local build)
+Copyright (C) 2002-18, Bruce Allen, Christian Franke, www.smartmontools.org
+
+=== START OF READ SMART DATA SECTION ===
+SMART overall-health self-assessment test result: PASSED
+\end{verbatim}
+
+Well, the health status said that it was passing, but I wasn't convinced.  Perhaps it hadn't been tested?  I next ran a short self-test:
+
+\begin{verbatim}
+/hesse /home/frostsnow # smartctl -t short /dev/sdb
+smartctl 7.0 2018-12-30 r4883 [x86_64-linux-5.4.13] (local build)
+Copyright (C) 2002-18, Bruce Allen, Christian Franke, www.smartmontools.org
+
+=== START OF OFFLINE IMMEDIATE AND SELF-TEST SECTION ===
+Sending command: "Execute SMART Short self-test routine immediately in off-line mode".
+Drive command "Execute SMART Short self-test routine immediately in off-line mode" successful.
+Testing has begun.
+Please wait 2 minutes for test to complete.
+Test will complete after Sun Mar 29 16:43:35 2020
+
+Use smartctl -X to abort test.
+\end{verbatim}
+
+This short test didn't show any errors, so I ran it again out of perplexity, which also didn't show any errors, and then decided to run the longer self-test:
+
+\begin{verbatim}
+hesse /home/frostsnow # smartctl -t long /dev/sdb
+smartctl 7.0 2018-12-30 r4883 [x86_64-linux-5.4.13] (local build)
+Copyright (C) 2002-18, Bruce Allen, Christian Franke, www.smartmontools.org
+
+=== START OF OFFLINE IMMEDIATE AND SELF-TEST SECTION ===
+Sending command: "Execute SMART Extended self-test routine immediately in off-line mode".
+Drive command "Execute SMART Extended self-test routine immediately in off-line mode" successful.
+Testing has begun.
+Please wait 36 minutes for test to complete.
+Test will complete after Sun Mar 29 17:20:09 2020
+
+Use smartctl -X to abort test.
+\end{verbatim}
+
+Much to my satisfaction, the long test actually reported a read error:
+
+\begin{verbatim}
+hesse /home/frostsnow # smartctl -l selftest /dev/sdb
+smartctl 7.0 2018-12-30 r4883 [x86_64-linux-5.4.13] (local build)
+Copyright (C) 2002-18, Bruce Allen, Christian Franke, www.smartmontools.org
+
+=== START OF READ SMART DATA SECTION ===
+SMART Self-test log structure revision number 1
+Num  Test_Description    Status                  Remaining  LifeTime(hours)  LBA_of_first_error
+# 1  Extended offline    Completed: read failure       40%     54064         865226
+# 2  Short offline       Completed without error       00%     54064         -
+# 3  Short offline       Completed without error       00%     54064         -
+# 4  Short offline       Completed without error       00%         0         -
+\end{verbatim}
+
+Having now recorded an error during one of its self-tests, perhaps the health self-assessment would now report a failure?
+
+\begin{verbatim}
+hesse /home/frostsnow # smartctl -H /dev/sdb
+smartctl 7.0 2018-12-30 r4883 [x86_64-linux-5.4.13] (local build)
+Copyright (C) 2002-18, Bruce Allen, Christian Franke, www.smartmontools.org
+
+=== START OF READ SMART DATA SECTION ===
+SMART overall-health self-assessment test result: PASSED
+\end{verbatim}
+
+Guess not.  Perhaps, as the \texttt{man} page reads, it will only report failing if the drive has already failed or thinks it will fail within the next 24 hours.  Unfortunately for me, 24 hours isn't sufficient notice for me as I don't have employees working daily in order to service my home computer; I need about a week's notice so that I can plan for the next weekend.  Nice as it would have been to get S.M.A.R.T. to declare that the drive needs replacing, I decided to go ahead and do the replacement anyways.
+
+\subsection{Removing the Old Drive}
+
+The trick to removing and replacing the old drive was to attempt to do so as smoothly as possible, with the shortest downtime and the fewest gotchas as possible.  To this end I developed a step-by-step plan in order to make the process as smooth as possible:
+
+\begin{enumerate}
+\item Identify the failing drive
+\item Wipe the new drive (already done)
+\item Generate a key for the new drive with \texttt{keyfile.sh}
+\item Add the key for the new drive to the \texttt{initramfs}
+\item Modify \texttt{extlinux.conf} to boot only the two working, pre-existing drives and to boot into single-user mode rather than multi-user mode
+\item Power down the server
+\item Install the new drive
+\item Boot into the server
+\item Add the new drive to the array
+\item Add the new drive to boot arguments, boot into multi-user mode
+\item Restart the server
+\end{enumerate}
+
+Simple enough, right?  In order to identify the hard drive, I used the venerable \texttt{hdparm} program to grab the drive's serial number (redacted in the below output):
+
+\begin{verbatim}
+hesse /home/frostsnow # hdparm -i /dev/sdb
+
+/dev/sdb:
+
+ Model=Maxtor 6Y080M0, FwRev=YAR51HW0, SerialNo=REDACTED
+ Config={ Fixed }
+ RawCHS=16383/16/63, TrkSize=0, SectSize=0, ECCbytes=4
+ BuffType=DualPortCache, BuffSize=7936kB, MaxMultSect=16, MultSect=off
+ CurCHS=16383/16/63, CurSects=16514064, LBA=yes, LBAsects=156250000
+ IORDY=on/off, tPIO={min:120,w/IORDY:120}, tDMA={min:120,rec:120}
+ PIO modes:  pio0 pio1 pio2 pio3 pio4
+ DMA modes:  mdma0 mdma1 mdma2
+ UDMA modes: udma0 udma1 udma2 udma3 udma4 udma5 *udma6
+ AdvancedPM=yes: disabled (255) WriteCache=enabled
+ Drive conforms to: ATA/ATAPI-7 T13 1532D revision 0:  ATA/ATAPI-1,2,3,4,5,6,7
+
+ * signifies the current active mode
+\end{verbatim}
+
+From there it was a matter of methodically following the steps that I'd laid out.  Generating a key, patching the \texttt{initramfs}, powering down the server, installing the new drive, booting the server---and, er, wait, what?  See, my particular motherboard is interesting in that, when power is first applied, the fan starts running at maximum speed before turning off when the motherboard enters a standby state.  Well, when I powered on the motherboard, it did the usual fan spin-up, but then, rather than idling, it seemed to cut out, then start again, then cut out, then start again, then cut out\ldots~Crap.  Something was going wrong.
+
+\subsection{Reviving the Motherboard}
+Perhaps there was a problem with the new drive?  I tried replacing the old drive to see if it'd boot.  Same problem.  Perhaps I'd jiggled a cable?  I ensured they were all in place.  Same problem.  Perhaps a component was faulty?  I tried disconnecting almost everything except the power to the motherboard itself.  Same problem.  Puzzled, I examined the motherboard, and that's when I noticed three bulging capacitors with leaked\ldots~something on their heads.  Now, this is when a high-budget blog would insert a picture of the bulging capacitors, but this blog is not high-budget and my camera was broken, so, sadly, I have no pictures of the broken caps.  Lesser mortals would have given up and bought a new motherboard, but I decided to be stubborn and see if I could instead replace the capacitors and thus save the board.  I began by removing the board, but as I removed the board from its case I had an unfortunate incident with one the screws which caused the motherboard to make a sort of stretch-cracking sound as I was unscrewing one of the screws;  I decided to try the other screws after this happened, and came back to the painful-noise-making screw last.  On the last incident it didn't make any sound and I was able to pull the board out, but I noticed that the nut under the screw had become stuck and tried to move with the screw, thus pulling the board up when I tried to unscrew it.  Ouch.  I hoped that it hadn't damaged the motherboard.
+
+I then spent some time researching capacitors, since any new domain of knowledge, no matter how simplified, involves a number of considerations that one must take into account before successfully attempting any project in said domain.  In this case, I learned the difference between \htmladdnormallink{through-hole}{https://en.wikipedia.org/wiki/Through-hole_technology} technology and \htmladdnormallink{surface-mount}{https://en.wikipedia.org/wiki/Surface-mount_technology} technology; luckily, my board was using through-hole technology.  I also couldn't help but notice the unfortunate use of "your" in this \htmladdnormallink{old capacitor advertisement}{https://upload.wikimedia.org/wikipedia/commons/5/57/Radio_Times_-_1923-12-28_-_page_39_-_Dubilier.png}.  Finding no other details relevant to my issue, I then took a q-tip to clean my capacitors and then tried to glean off as much information as possible from them so that I could figure out what to replace them with.  Turns out that all the capacitors were manufactured by Rubycon, model MBZ, and were spec'd for 3300uF at 6.3V with what is presumably a maximum temperature of 105 degrees Celsius.  Well, I couldn't find the model specified listed on the \htmladdnormallink{Rubycon website}{http://www.rubycon.co.jp/en/index.html}, but I did find what is \htmladdnormallink{presumably a legitimate data sheet}{https://pdf1.alldatasheet.com/datasheet-pdf/download/144891/RUBYCON/MBZ.html} on the capacitor from a random website I found by searching; the data sheet claimed that the capacitor had a 20\% tolerance, which was the last missing piece of information I'd need for a replacement.
+
+Information in hand, I tried a couple of local stores, such as \htmladdnormallink{PCH Cables}{https://www.pchcables.com/} and \htmladdnormallink{Surplus Gizmos}{https://www.surplusgizmos.com/}; none of them had what I needed, though Surplus Gizmos could sell me used motherboards with the same capacitors, I was not keen to essentially double the complexity of my replacement project.  \htmladdnormallink{URS Electronics}{https://www.ursele.com/} also did not have any of the capacitors listed.  The capacitor manufacturer themselves seemed to only operate in bulk orders, which is understandable since individual capacitors are cheap and tend to be a bulk product.  Local and direct options exhausted, I was able to find someone selling the exact same brand of capacitor off of Amazon in sets of 8, and so decided to buy from them; they arrived in a few days, pleasantly beating my expectation of having to wait another week.  For the soldering station I'd need, a frien-quaintance was kind enough to give me their old one, along with some solder, flux, and desoldering braid.  By the time I'd acquired everything, it was about 9 p.m. on Sunday evening, a week after I had first powered-off my server (so much for minimizing downtime).  Heedless of the time, I wanted my board fixed that weekend and thus began working on it.
+
+This was my second time soldering, ever, and I'd never desoldered before.  Ever cautious, I slowly turned the heat on the station up to max after having no luck with the lower temperatures.  Unsure how to use the braid to properly remove the solder with the capacitors in there, I wiggled the capacitors out by heating one of the two holes at a time and then pulling on the capacitor; this eventually succeeded in getting the capacitors out, but left a hole full of solder that was no good for inserting capacitors into.  Now the real frustration began for me.  I had a very difficult time getting the braid to remove the solder in the holes.  After getting frustrated and doing some searching, I learned to apply the flux to the braid; that seemed to help, but it didn't seem to be enough to fully clean the hole and got gunk all around the hole.  After about 3-4 hours of this it was about 2 a.m. and I only had half of the six holes cleaned.  I feel asleep exhausted and frustrated.  The next morning I took a closer look at the soldering iron in the daylight and noticed that either there was some crud on part of the tip or that it had been worn away; either way, a small part of the tip seemed to be effectively heated while the other bit remained cool.  Taking this into account, I attempted to desolder with the hot part of the tip at lunch.  After a few attempts, I removed most of the solder from the 4th hole, and a bit more from the last two holes, which didn't have much in them anyways.  After the holes were cleared, I took care to align the capacitors and resolder them, which was much easier than desoldering them, though most of them came out a little crooked.
+
+Before powering the motherboard on, I attempted to remove the gunk on the board with some rubbing alcohol, though the shop rags I was using left traces of red fiber anyways.  Now, at this point I was rather\ldots~hesitant about my chance for success.  The board had made those terrible sounds thanks to that evil nut on the screw, I'd run a hot soldering iron against the board a number of times because I couldn't hold my hand steady (not to mention any remaining gunk I might have left on the board), and the capacitors being broken might have caused severe electrical damage to the board anyways.  Nonetheless, the only thing to do was to try anyways.  I found the motherboard \htmladdnormallink{product guide}{https://www.intel.com/content/dam/support/us/en/documents/boardsandkits/desktop-boards/965/DQ965GF/DQ965GF_ProductGuide03.pdf} online so that I could figure out how to re-attach all of the basic connectors, plugged everything in, powered on the board, and watched as the fan ran, stopped\ldots~and stayed stopped.  Was it\ldots~working?  I powered off the board, re-attached the other connectors such as the VGA output and SATA cables, powered on the board and, amazingly, the motherboard was actually working again!  Now I could get back to replacing that hard drive.
+
+\subsection{Adding the New Drive}
+I began drive replacement by attempting to remove the old drive with \texttt{mdadm --manage /dev/md0 -r detached}; I think that did something.  Next thing, I noticed that I had forgotten to take into account setting up an encrypted mapping for the new drive; I had the \texttt{initramfs} on my server, but I hadn't installed the \texttt{cpio} utilities in order to extract the scripts I'd need to create the mapping, so I extracted them from another machine and then moved them onto the server.  Once I had the scripts, I used \texttt{cryptsetup.sh} command with the previously-generated key in order to create a mapping, though it accepted the password as a command-line argument rather than some secure method (the scripts could use a refactor), so I cleared my history with \texttt{history -c} afterwards.  Once I had the mapping set-up, I added the encrypted drive mapping to the array with \texttt{mdadm --manage /dev/md0 --add /dev/mapper/NAME}.  This seemed to work and the array began rebuilding.  Satisfied, I reconfigured \texttt{extlinux.conf} to boot with the new drive and rebooted the machine (with the ethernet cable detached).  When it came up, I then logged in as a regular user and ran \texttt{watch cat /proc/mdstat} in order to watch the array rebuild itself.  A little after midnight, the array was rebuilt and I was able to bring the server back to normal operation!
+
+And that, dear readers, is how one actually fixes a raid array: by replacing capacitors on the motherboard so the thing will actually boot again.  Funny how none of the guides that I read ever mentioned that.
+
+
 % Pillars of Eternity: Path of the Damned, White March Part II
 \section{2020-01-18 Pillars of Eternity: Path of the Damned, White March Part II}
 At last, the final part of the last expansion!  One of the joys of late-game is that skills and spells are cumulative, giving me tons of abilities to choose from.  In particular, this expansion gave me 8th level spells such as ``Caedebald's Blackbow'', ``Avenging Storm'', and ``Symbol of Magran''.  Yet, alas, even this expansion's areas were too low a level and I had to increase the difficulty by choosing the high-level scaling option.
@@ -350,7 +503,7 @@ By the time I did engage the enemies, I was very powerful.  To my added amusemen
 \includegraphics[scale=0.33]{files/blog/2020_01_18_poe_potd_wmpt2/2020_01_18_llengrath3.jpg}
 \end{figure}
 
-When dominate wore off, I took advantage of the petrified and paralyzed afflictions from the wall in order to deal massive damage to him and kill him. 
+When dominate wore off, I took advantage of the petrified and paralyzed afflictions from the wall in order to deal massive damage to him and kill him.
 
 \begin{figure}
 \includegraphics[scale=0.33]{files/blog/2020_01_18_poe_potd_wmpt2/2020_01_18_llengrath4.jpg}
@@ -482,7 +635,7 @@ Believers must be dismissed from their jobs merely for their faith; Komsomols mu
 --- Vol. III, p514
 \end{quote}
 
-Other pressures included: requirements to violate the secrecy of the confessional by becoming informers for the state\footnote{Vol. I, p59}, refusing to work on Sundays being considered economic sabotage\footnote{Vol. I, p59}, and non-atheist communes having their teachers arrested for not following the government programs\footnote{Vol. I, p51}.  There are many notable stories of this persecution, such as: the banning of religious famine-relief programs (a famine in which cannibalism, even parents eating their own children, was practiced) followed by the forced requisition of all church valuables\footnote{Vol. I, p342--349}, the tracking down and arrest of an independent Yaruyevo commune\footnote{Vol. III, p366--367}, and starving a group of arrested old monks that refused to sign paperwork\footnote{Vol. II, p65--66}: 
+Other pressures included: requirements to violate the secrecy of the confessional by becoming informers for the state\footnote{Vol. I, p59}, refusing to work on Sundays being considered economic sabotage\footnote{Vol. I, p59}, and non-atheist communes having their teachers arrested for not following the government programs\footnote{Vol. I, p51}.  There are many notable stories of this persecution, such as: the banning of religious famine-relief programs (a famine in which cannibalism, even parents eating their own children, was practiced) followed by the forced requisition of all church valuables\footnote{Vol. I, p342--349}, the tracking down and arrest of an independent Yaruyevo commune\footnote{Vol. III, p366--367}, and starving a group of arrested old monks that refused to sign paperwork\footnote{Vol. II, p65--66}:
 
 \begin{quote}
 In the Summer of 1930 they brought to Solovki several dozen religious sectarians who rejected anything that came from the anti-Christ: they refused to accept any documents, including passports, and they refused to sign for anything or to handle any money.  At their head was a gray-bearded old man of eighty, blind and bearing a long staff.  Every enlightened person could clearly see that these sectarians could never ever enter into socialism, because that required having a great to deal to do with papers---and that therefore the best thing for them to do was to die.  And so they sent them off to Maly Zayatsky Island, the smallest in the entire Solovetsky archipelago---sandy, unforested desert, containing a summer hut of the former monk-fishermen.  And they expressed willingness to give them two months' rations, the condition being that \emph{each one} of the sectarians would have to sign for them on the invoice.  Of course they refused. \ldots~And so they were \emph{sent off without food}.  Two months later (exactly two months because they were then to be asked to sign for their food for the next two months) they sailed over to Maly Zayatsky and found only corpses which had been picked by the birds.  Everyone was there.  No one had escaped.
@@ -4291,7 +4444,7 @@ Though it's best not to get too confident:
 \includegraphics[scale=0.33]{files/blog/2018_06_16_pillars_of_eternity_path_of_the_damned_act_i/2018_06_16_l6_darguls.png}
 \end{figure}
 
-The darguls were difficult due to their "Paralyzing Touch" ability, but Hiravas' "Purge of Toxins" spell \emph{seemed} to counteract it, though Eder still got re-paralyzed despite being affected by the buff.  
+The darguls were difficult due to their "Paralyzing Touch" ability, but Hiravas' "Purge of Toxins" spell \emph{seemed} to counteract it, though Eder still got re-paralyzed despite being affected by the buff.
 
 The blights on level 7 were tricky, but nothing that I wasn't able to overcome:
 
