@@ -1,0 +1,3 @@
+[submodule "files/frostsnow.net"]
+	path = files/frostsnow.net
+	url = https://github.com/clinew/frostsnow.net.git

@@ -25,7 +25,9 @@ blog: ${graphs} blog.tex
 contact: contact.tex
 	mkdir -p website/contact
 	latex2html ${l2hflags} -split 2 -link 0 -dir website/contact contact.tex
-	cp files/irc.pdf website/contact/irc.pdf
+	make -C files/frostsnow.net
+	cp files/frostsnow.net/instructions.pdf website/contact/irc.pdf
+	cp files/cotss.pem website/contact/cotss.pem
 
 tutor: tutor.tex
 	mkdir -p website/tutor
