@@ -6,6 +6,19 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2020-08-02}
+Below are my brief notes on Gentoo auto-login with SSDM; it should be more secure than running \texttt{xorg-server} with the \texttt{suid} flag.  Create file \texttt{/etc/sddm.conf.d/autologin.conf} with contents:
+\begin{verbatim}
+[Autologin]
+User=myuser
+Session=i3.desktop
+\end{verbatim}
+In file \texttt{/etc/conf.d/xdm}, set the following line:
+\begin{verbatim}
+DISPLAYMANAGER="sddm"
+\end{verbatim}
+Then be sure to add \texttt{xdm} to the default runlevel with \texttt{rc-update add xdm default}.
+
 \subsection{2020-07-14}
 The Revolution will be corporate-sponsored.
 
