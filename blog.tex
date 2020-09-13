@@ -18,6 +18,276 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+% Implementing Admin, Friend, Referred PKI v0.2.0
+\section{2020-09-13 Implementing Admin, Friend, Referred PKI v0.2.0}
+I currently run a secure IRC server that uses a custom Public Key Infrastructure (PKI) in order to authenticate both the server and its clients.  A feature of the infrastructure is that certain users are able to invite other users by signing certificates for them.  However, I became aware of some potential flaws in how I'd set-up the PKI that led me to develop a newer PKI that would fix these flaws.  I have dubbed the newer PKI ``Admin, Friend, Referred'' in order to reflect the ability of friends to refer users to the server.  This blog will detail how I went from the old version of the PKI to the new version, and includes planning, tooling development, and actual deployment.
+
+\subsection{Friend-of-friend PKI}
+The previous version of the AFR PKI, unofficially v0.1.0, I called ``friend-of-friend''.  This lead to the rather confusing initialization FoF, which usually means ``Friend or Foe''.  Worse than nomenclature, though, my reading of Bruce Schneier's ``Applied Cryptography'' made me aware of a potential attack detailed under the header ``Resending the Message as a Receipt''; I shall not re-iterate the attack here, but I worried that using the same certificate public key for encrypting TLS sessions and signing certificates might make the PKI vulnerable.  I decided to take an amateur look at the \htmladdnormallink{TLS 1.3 protocol}{https://tools.ietf.org/html/rfc8446} in order to see if the vulnerability might be exploitable in that version of TLS.
+
+After some digging, it appears that the public and private keys used to negotiate the shared secret which encrypt a TLS connection are actually \emph{ephemeral}.  The server certificate's private key is not actually used to encrypt the shared secret, but a \texttt{CertificateVerify} message which consists of padding, a context string, and a hash of the handshake messages (which contains both client and server-provided random data) is signed by the server certificate's private key.  I interpret this as meaning that it should not be possible for a client to make the server sign (decrypt) arbitrary data.  In fact, if the server only \emph{signs} rather than \emph{encrypts} both the TLS session's shared secret and signs certificates, then this attack should not be feasible (at least for TLS 1.3; I didn't research previous versions of TLS).  Though my analysis may be off, I had enough confidence at this point that the aforementioned attack wasn't readily exploitable.
+
+Nonetheless, given that other protocols may not make such clever use of keys, my (limited) understanding of cryptography has led me to be cautious about using the same keys for signing and encryption.  According to Schneier, the aforementioned attack works when, ``\ldots the encrypting operation is the same as the signature-verifying operation and the decrypting operation is the same as the signature operation.'', and one of the methods to mitigate this potential attack is to use separate keys for signing and encryption.  Thus I set out to design version v0.2.0 of the infrastructure with this in mind.
+
+\subsection{Developing a Plan}
+The first thing that I needed in order to implement a new infrastructure was a plan, and I figured that the best way to do this would be to take a notebook and pen into a nearby nature park and brainstorm.  This worked out well; while in the park I produced a diagram of an example infrastructure similar to the one that I would eventually create for the AFR white paper, the latter of which is shown below:
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tikzpicture}
+	\node (Root) at (0, 0) [align=left,draw] {\texttt{I: Root} \\ \texttt{S: Root}};
+
+	\node (Service) at ($(Root) + (-4, -3)$) [align=left,draw] {\texttt{I: Root} \\ \texttt{S: Service}};
+	\node (Signing) at ($(Root) + (4, -3)$) [align=left,draw] {\texttt{I: Root} \\ \texttt{S: Signing}};
+	\draw[-Stealth] (Root) -- (Service);
+	\draw[-Stealth] (Root) -- (Signing);
+
+	\node (Friend1) at ($(Signing) + (-6, -3)$) [align=left,draw] {\texttt{I: Signing} \\ \texttt{S: Friend1}};
+	\node (Referrer1) at ($(Signing) + (-3, -3)$) [align=left,draw] {\texttt{I: Signing} \\ \texttt{S: Referrer1}};
+	\node (Friend2) at ($(Signing) + (0, -3)$) [align=left,draw] {\texttt{I: Signing} \\ \texttt{S: Friend2}};
+	\node (Friend3) at ($(Signing) + (3, -3)$) [align=left,draw] {\texttt{I: Signing} \\ \texttt{S: Friend3}};
+	\node (Referrer3) at ($(Signing) + (6, -3)$) [align=left,draw] {\texttt{I: Signing} \\ \texttt{S: Referrer3}};
+	%\node (FriendExtra) at ($(Signing) + (9, -3)$) [align=left,draw] {\ldots};
+	\draw[-Stealth] (Signing) -- (Friend1);
+	\draw[-Stealth] (Signing) -- (Referrer1);
+	\draw[-Stealth] (Signing) -- (Friend2);
+	\draw[-Stealth] (Signing) -- (Friend3);
+	\draw[-Stealth] (Signing) -- (Referrer3);
+	%\draw[-Stealth] (Signing) -- (FriendExtra);
+
+	\node (Referred1-1) at ($(Referrer1) + (-3, -3)$) [align=left,draw] {\texttt{I: Referrer1} \\ \texttt{S: Referred1-1}};
+	\node (Referred1-2) at ($(Referrer1) + (0, -3)$) [align=left,draw] {\texttt{I: Referrer1} \\ \texttt{S: Referred1-2}};
+	%\node (Referred1-Extra) at ($(Referrer1) + (3, -3)$) [align=left,draw] {\ldots};
+	\node (Referred3-1) at ($(Referrer3) + (0, -3)$) [align=left,draw] {\texttt{I: Referrer3} \\ \texttt{S: Referred3-1}};
+	\draw[-Stealth] (Referrer1) -- (Referred1-1);
+	\draw[-Stealth] (Referrer1) -- (Referred1-2);
+	%\draw[-Stealth] (Referrer1) -- (Referred1-Extra);
+	\draw[-Stealth] (Referrer3) -- (Referred3-1);
+\end{tikzpicture}
+}
+\end{makeimage}
+\caption{Example AFR PKI.}
+\end{figure}
+\end{center}
+
+Having the infrastructure drawn out, the next thought on my mind was: how am I going to convince myself that the infrastructure is viable?  The answer that I chose was to speculate various \emph{use cases} that I would want to apply to the infrastructure.  I could then write test cases for each of the various use cases in order to convince myself of the infrastructure's integrity.  While I was brainstorming the use cases, it became clear to me that there was a useful distinction between the \emph{reason} for a use case and the \emph{mechanism} for fulfilling that use case; for example, the admin may wish to invite a friend (the reason), but this is accomplished by issuing a friend's client certificate (the mechanism).  Hence I decided to name all of my use cases by their mechanism, knowing that each may have multiple reasons for being used.  The list was as follows:
+\begin{enumerate}
+	\item Initialize
+	\item Generate friend client cert
+	\item Revoke friend client cert
+	\item Generate friend signing cert
+	\item Revoke friend signing cert
+	\item Revoke referral client cert
+	\item Friend revokes referral
+	\item Friend revokes their client cert
+	\item Friend revokes their signing cert
+	\item Referred revokes their client cert
+	\item Re-generate service cert
+	\item Re-generate signing CA
+\end{enumerate}
+The terminology wasn't quite at its final form, and I completely forgot about friends issuing client certificates with their referrer certificate, but this provided a good basis for designing tests.  I decided to design tests around use cases 1 through 10, omitting the disaster scenarios in the last two use cases on the grounds that they were too much for the current version of the tooling.  I also wrote the tests to include not just a check for success but also a so-called ``parity'' check; for example, checking that a valid client certificate is authorized but also, as ``parity'', checking that an invalid client certificate is unauthorized in order to ensure that the service isn't accepting any random certificate.  The 10 uses cases and their tests thus became:
+\begin{enumerate}
+	\item Initialize
+	\begin{itemize}
+		\item Verify service certificate works
+		\item Verify signing key works via using admin client cert
+		\item Verify unauthorized service certificate rejected
+		\item Verify unauthorized client cert rejected
+	\end{itemize}
+	\item Generate friend client cert
+	\begin{itemize}
+		\item Verify friend can connect
+		\item Uncertified cert fails
+	\end{itemize}
+	\item Revoke friend client cert
+	\begin{itemize}
+		\item Revoked friend can no longer connect
+		\item Non-revoked friend can connect.
+	\end{itemize}
+	\item Generate friend signing cert
+	\begin{itemize}
+		\item Referred can connect
+		\item Unverified cert fails
+	\end{itemize}
+	\item Revoke friend signing cert
+	\begin{itemize}
+		\item Referred can no longer connect
+		\item Other referred can connect
+	\end{itemize}
+	\item Admin Revoke referral client cert
+	\begin{itemize}
+		\item Referred can no longer connect
+		\item Other referred can still connect
+	\end{itemize}
+	\item Friend revokes referral
+	\begin{itemize}
+		\item Referred can no longer connect
+		\item Other referred can connect
+	\end{itemize}
+	\item Friend revokes their client cert
+	\begin{itemize}
+		\item Friend can no longer connect
+		\item Other friend can connect
+	\end{itemize}
+	\item Friend revokes their signing cert
+	\begin{itemize}
+		\item Referred can no longer connect
+		\item Other referred (from different friend) can connect
+	\end{itemize}
+	\item Referred revokes their client cert
+	\begin{itemize}
+		\item Referred can no longer connect
+		\item Other referred (from same friend) can connect
+	\end{itemize}
+\end{enumerate}
+Plans thus written out, it was time to implement the tests.
+
+\subsection{Implementing Tests}
+While an abstract implementation of AFR tests might have used just the OpenSSL \texttt{s_server} directly, my main concern was getting AFR to work properly with InspIRCd, hence I added the tests to my \htmladdnormallink{inspircdtests}{https://github.com/clinew/inspircdtests} repo which was written, intuitively enough, against InspIRCd.  Since each test involved a large amount of state, I decided to set-up state at the beginning of the tests and re-use it across the entire suite of tests; this meant that subsequent tests were allowed to depend on previous tests.  I also settled on ``referrer'' and ``referred'' terminology around this time, allowing me to succinctly refer to tests with names such as ``sign-referrer''.  Actually implementing the tests according to plan went smoothly, until I ran into ``revoke-referred''.
+
+The purpose of the ``revoke-referred'' test was to allow an admin to ban a referred user without having to wait for the referrer to issue a Certificate Revocation List (CRL) for the user.  I had thought that I'd be able to use Indirect CRLs in order to easily implement this test, but I couldn't figure out how to actually do this, so I started searching and running into similar but irrelevant posts.  For example, \htmladdnormallink{this issue}{https://github.com/openssl/openssl/issues/2358} seemed to me to be an issue with how CRLs were searched for, not how to issue indirect CRLs.  \htmladdnormallink{This question}{https://security.stackexchange.com/questions/91680/how-to-trust-a-ca-to-sign-a-crl-but-not-a-cert} was similar to my need, but did not explain how to generate an indirect CRL.  \htmladdnormallink{This lone question}{https://superuser.com/questions/1273121/how-to-verify-indirect-crl} appears to focus on verification, but, without generation, is not useful to me.  Most hopeful was this \htmladdnormallink{old forum post}{http://openssl.6102.n7.nabble.com/Re-openssl-org-3097-Incorrect-revocation-status-with-indirect-CRL-td47482.html} which provided an example of an indirect CRL, but in this case the example appeared to to rely on the fact the indirect CRL issuer was only issuing CRLs for a particular CA and not multiple CAs (the latter being my requirement); nonetheless I \htmladdnormallink{tried}{https://github.com/clinew/inspircdtests/tree/indirect_crl} to get example working but didn't meet with any success.  While nothing solved my specific need, I did, however, learn from \htmladdnormallink{this post}{https://stackoverflow.com/questions/9104108/is-serial-number-a-unique-key-for-x509-certificate} that the purpose of the serial number is to uniquely identify a certificate issued by a given CA.  For the rest, I took some time to study \htmladdnormallink{the RFC}{https://tools.ietf.org/html/rfc5280#section-5} and hypothesize a way forward.
+
+Since I couldn't figure out how to implement ``revoke-referred'' properly, I came up with a stop-gap test instead.  While there didn't appear to be a way to ban client certificates globally in InspIRCd, it was possible to ban a given certificate fingerprint on a channel, so I designed a test that would have a user join a temporary channel, set a ban on the channel for the certificate fingerprint of the other user, then have the other user attempt to join the channel and fail; for parity, a third user who wasn't banned on the channel would then join the channel successfully.  Plan in hand, I attempted this only to find that whenever I joined the temporary channel I would not be an operator as I expected, thus I couldn't set any bans on the channel.  After a bit of searching I found that my test server's InspIRCd \texttt{options} tag was set with \texttt{defaultmodes="nt"} when it should have been \texttt{defaultmodes="not"}, talk about Murphy's Law!  Fixing this issue allowed me to set a ban on the channel and implement the test.
+
+Implementing the next test went smoothly, but I then realized that there wasn't much point to implementing the last three tests (``friend-revoke-client'', ``friend-revoke-referrer'', and ``referred-revoke-client'') at this time, since there does not appear to be a way for users to self-revoke their certificates, and having the admin revoke the friend certificates (for the former two) and the friend revoke the referred certificate (for the latter-most) would simply be a repeat of previous tests.  These tests would make sense if I had some kind of network protocol for certificate management and could mimic a client authenticating with their certificate and requesting a revocation on the given certificate, but they did not appear useful as tests with the current implementation.
+
+With tests implemented which verified that the infrastructure appeared to work as I expected (besides the indirect CRLs), I began to look ahead to actually deploying this infrastructure.  Given the sheer volume of complex commands I had to issue for testing, I decided that there was no way that I could realistically run these commands by hand and be sure that I had done the same as in my tests.  I would have to develop tools in order to simplify my work for me.
+
+\subsection{Implementing Tooling}
+One of the more perplexing choices when writing tooling is balancing the amount effort to put into tooling development against the benefits gained from having tooling.  With regards to AFR tooling, the main benefit for me was reproduceability from not having to run a series of complex commands by hand for common use cases.  Since the tools would be calling OpenSSL commands, I decided to write the tooling in \texttt{bash}; as much as I generally prefer Python's data structures and control flow, I find the \texttt{subprocess} module's interface to be extremely awkward and cumbersome.  Given the issue mentioned earlier with the lack of a command-line interface for generating indirect CRLs, I also suspected that future versions of the tooling would need a re-write in a language, possibly C, that had bindings for the OpenSSL library, so I decided not to put a large amount of effort into the tooling; ``good enough'' would suffice.
+
+The next choice I had was where to put everything.  After consulting the \htmladdnormallink{Filesystem Hierarchy Standard v3}{https://refspecs.linuxfoundation.org/FHS_3.0/fhs/index.html}, I settled on \texttt{/var/lib/afr/instance}, where \texttt{instance} might one day allow multiple independent AFR PKIs; though I would be exposing some information in that directory to consumers, the \texttt{/srv} path felt like it was more for Web services.  System AFR configuration would go to \texttt{/etc/afr/afr.conf}, and I also ended up sticking the OpenSSL configuration file in the same directory path, though, in retrospect, \texttt{/usr/lib/share/afr} might have been more appropriate.
+
+Layout in place, I began to implement the basic admin use cases, and found that I needed to add auxiliary commands in order to implement parts of certain uses cases; for example \texttt{receive-crl} in order to apply a CRL from a referrer certificate.  Once the admin use cases were done, I then had to figure out how to implement the use cases for friends and referreds.  While it might have been possible to add non-admin-specific subcommands, giving them names such as \texttt{friend-init} and \texttt{friend-revoke-referred} would be cumbersome for users to type and users would be liable to conflate non-admin subcommands with admin subcommands such as the regular \texttt{init}.  The solution that I chose was to add a separate \texttt{afrc} command for \emph{clients} with its own set of subcommands; functionality common to both \texttt{afr} and \texttt{afrc} would be put into \texttt{afr_lib.sh} and both friends and referreds would use the same command set due to the similarities between the two users.  I then implemented the subcommands needed for client use cases, although the implementation I used was slightly awkward since I forced clients to use \texttt{make install} in order to place \texttt{afr_lib.sh} and \texttt{openssl.cnf} in expected locations, but I hadn't thought up a particularly easy workaround for that and it was ``good enough''.
+
+A trick that I used in order to convince myself of the basic robustness of my tooling was to refactor the AFR tests that I'd written for InspIRCd to use the new AFR utilities.  With each AFR subcommand implemented, I'd refactor the test to use the corresponding subcommand rather than raw OpenSSL commands.  Thus, by the time I'd finished writing the tooling, I had tests that verified the tooling and the PKI!  While this was good news for when I deployed a new AFR PKI, I still had to figure out how I was going to migrate from my existing PKI to the new AFR PKI.
+
+\subsection{Transition Plan Development}
+While I could have immediately migrated from my existing PKI to a new AFR PKI, doing so would have invalidated all of my PKI's existing client certificates, making all of my non-existent users unhappy and leaving me discontent with my computer skills.  As such, I decided to look into a subject which I was not yet familiar with: \htmladdnormallink{cross-signing}{https://en.wikipedia.org/wiki/X.509#Certificate_chains_and_cross-certification}.  \htmladdnormallink{This paper}{http://www.oasis-pki.org/pdfs/Understanding_Path_construction-DS2.pdf} in particular provided much insight into the process.  I learned that, contrary to my previous belief, cross-signing could be used in order to build a distributed trust model and not just a hierarchical model.  I also began to think that it might be possible to create a transitional PKI that would accept both old and new client certificates, and possibly allow users with the old and new root as a trust anchor to authenticate the service.  Though I also realized that I had made an elementary mistake with my client certificates.
+
+I'm not sure why it took reading about cross-certification for this vulnerability to occur to me, but, as I studied path construction, I realized that the AFR PKI had nothing in it that would prevent a referrer certificate from issuing server certificates!  D'oh.  Thankfully, the solution was straightforward enough: add a critical extension to the signing and all referrer certificates which only authorizes those certificates for client authentication; specifically: \texttt{extendedKeyUsage=critical,clientAuth}.  Strangely enough, the RFC section on \htmladdnormallink{Extended Key Usage}{https://tools.ietf.org/html/rfc5280#section-4.2.1.12} states that: ``In general, this extension will appear only in end entity certificates.''.  This caused me a bit of worry, since a malicious referrer could leave off the extension on an issued service certificate, but thankfully my \htmladdnormallink{test}{https://github.com/clinew/inspircdtests/commit/80bc6dd3d6005a0bba877d2d557936aa0e00a7e4} showed that the extension was effective despite not being on the end-entity certificate.  With that fixed, I could then begin brainstorming a transitional PKI.
+
+The previous PKI (v0.1.0) I had referred to as ``Friend-of-Friend'' and was structured as such:
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\fbox{
+\begin{tikzpicture}
+	\node (Root) at (0, 0) [align=left,draw] {\texttt{I: Root} \\ \texttt{S: Root}};
+	\node (Friend1) at ($(Root) + (-3, -1.5)$) [align=left,draw] {\texttt{I: Root} \\ \texttt{S: Friend1}};
+	\node (Friend2) at ($(Root) + (3, -1.5)$) [align=left,draw] {\texttt{I: Root} \\ \texttt{S: Friend2}};
+	\node (FoF1-1) at ($(Friend1) + (-1.3, -1.5)$) [align=left,draw] {\texttt{I: Friend1} \\ \texttt{S: FoF1-1}};
+	\node (FoF1-2) at ($(Friend1) + (1.3, -1.5)$) [align=left,draw] {\texttt{I: Friend1} \\ \texttt{S: FoF1-2}};
+	\node (FoF2-1) at ($(Friend2) + (-1.3, -1.5)$) [align=left,draw] {\texttt{I: Friend2} \\ \texttt{S: FoF2-1}};
+	\node (FoF2-2) at ($(Friend2) + (1.3, -1.5)$) [align=left,draw] {\texttt{I: Friend2} \\ \texttt{S: FoF2-2}};
+	\draw[-Stealth] (Root) -- (Friend1);
+	\draw[-Stealth] (Root) -- (Friend2);
+	\draw[-Stealth] (Friend1) -- (FoF1-1);
+	\draw[-Stealth] (Friend1) -- (FoF1-2);
+	\draw[-Stealth] (Friend2) -- (FoF2-1);
+	\draw[-Stealth] (Friend2) -- (FoF2-2);
+\end{tikzpicture}
+}
+\end{makeimage}
+\caption{The old version (v0.1.0) of the PKI, named ``Friend-of-Friend''}
+\end{figure}
+\end{center}
+As mentioned earlier, my main concern was authorizing old client certificates.  Having clients who trusted the old root certificate be able to trust the new service certificate would be a plus, though.
+
+After a bit of contemplation, I realized that I could authorize friends using client certificates issued by the old PKI by signing the old root certificate as a referrer certificate.  As a downside, any friend-of-friend certificates issued by friends wouldn't be authorized due to the \texttt{pathlen:0} restriction on the cross-signed old root certificate, but no one had yet bothered to use that feature (surprisingly, users don't like typing in esoteric OpenSSL commands) so the solution was ``good enough''.  This then gave the following series of PKI paths:
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\newlength{\ugh}
+\settowidth{\ugh}{\texttt{I: New Root CA}}
+\fbox{
+\begin{tabular}{l|l|l}
+Old: & Transition: & New: \\
+\begin{tikzpicture}
+	\node (Root) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: Old Root CA} \\ \texttt{S: Old Root CA}}};
+\end{tikzpicture}
+&
+\begin{tikzpicture}
+	\node (NewRoot) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
+	\node (Signing) at ($(NewRoot) + (0, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: Signing CA}}};
+	\node (OldRoot) at ($(Signing) + (0, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: Signing CA} \\ \texttt{S: Old Root CA}}};
+	\draw[-Stealth] (NewRoot) -- (Signing);
+	\draw[-Stealth] (Signing) -- (OldRoot);
+\end{tikzpicture}
+&
+\begin{tikzpicture}
+	\node (NewRoot) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
+	\node (Signing) at ($(NewRoot) + (0, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: Signing CA}}};
+	\draw[-Stealth] (NewRoot) -- (Signing);
+\end{tikzpicture}
+\end{tabular}
+}
+\end{makeimage}
+\caption{Paths of the various PKI implementations with regards to trusted certificates when validating client certificates.}
+\end{figure}
+\end{center}
+The old root could then either be cross-signed for a limited duration or revoked by the new signing certificate when the transition period was over; I chose the latter for finer control as circumstance permitted.  Another benefit of signing the old root as a referrer was that any friend-of-friend certificates pretending to be a service would, to my knowledge, not be accepted due to the constraints extension on the signing certificate, though I did not test this.
+
+Configuring the service such that clients who trusted both the old root and the new root would be able to authorize the service was a bit trickier.  This is in part because the validation path would branch depending on which trust anchor the client was using, and the trust anchor would in either case be outside of the certificates sent by the server.  The trick here was to have the old root certificate sign the new root certificate, then have the server present both the cross-signed new root certificate and the service certificate:
+\begin{center}
+\begin{figure}
+\begin{makeimage}
+\newlength{\ugh}
+\settowidth{\ugh}{\texttt{I: New Root CA}}
+\fbox{
+\begin{tabular}{l|l|l}
+Old: & Transition: & New: \\
+\begin{tikzpicture}
+	\node (Root) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: Old Root CA} \\ \texttt{S: Old Root CA}}};
+	\node[left,text=green!60!black] (Trusted) at (Root.west) {trusted};
+	\draw (Root) -- (Trusted);
+\end{tikzpicture}
+&
+\begin{tikzpicture}
+	\node (OldRoot) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: Old Root CA} \\ \texttt{S: Old Root CA}}};
+	\node[left,text=green!60!black] (OldTrusted) at (OldRoot.west) {\parbox{1.1cm}{\centering old \\ trusted}};
+	\node (NewRoot) at (6, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
+	\node[left,text=green!60!black] (NewTrusted) at (NewRoot.west) {\parbox{1.1cm}{\centering new \\ trusted}};
+	\node (CrossRoot) at ($(OldRoot) + (1.5, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: Old Root CA} \\ \texttt{S: New Root CA}}};
+	\node (Service) at ($(CrossRoot) + (1.5, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: Service}}};
+	\draw[-Stealth] (OldRoot) -- (CrossRoot);
+	\draw[-Stealth] (NewRoot) -- (Service);
+	\draw[-Stealth] (CrossRoot) -- (Service);
+	% Server-supplied box
+	\begin{scope}[on background layer]
+		\node (Supplied) [rectangle,thick,draw=white!40!black,inner sep=0.5cm,fit=(Service) (CrossRoot)] {};
+		\node [above right,text=white!40!black] at (Supplied.south west) {server-supplied};
+	\end{scope}
+\end{tikzpicture}
+&
+\begin{tikzpicture}
+	\node (Root) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
+	\node[left,text=green!60!black] (Trusted) at (Root.west) {trusted};
+	\node (Service) at ($(Root) + (0, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: Service}}};
+	\draw[-Stealth] (Root) -- (Service);
+\end{tikzpicture}
+\end{tabular}
+}
+\end{makeimage}
+\caption{Paths of the various PKI implementations with regards to client trust of the server.}
+\end{figure}
+\end{center}
+No matter which root certificate the client would use as a trust anchor, there would be a valid path to that trust anchor.  Also of interest is the fact that cross-signing \emph{client} certificates meant that the \emph{new} root had to certify the \emph{old} root, but cross-signing the \emph{server} certificate meant that the \emph{old} root had to certify the \emph{new} root.
+
+Naturally, I wanted to make sure that the planned infrastructure actually worked, so I wrote some \htmladdnormallink{transition tests}{https://github.com/clinew/inspircdtests/blob/master/ssl_transition.sh} for that purpose; in addition to verifying that old and new certificates worked with the transition PKI, I made sure to check that new certificates did not work with the old PKI.  I did have some worries that the client software which trusted the new root would not authenticate the server due to the extraneous, cross-signed certificate sent by the server, but, to my relief, the tests showed otherwise.  All of the tests ended up passing as I had hoped.
+
+One last thing that I did in order to help remind users to transition was to write a \htmladdnormallink{quick, hacky patch}{https://github.com/clinew/inspircd/commit/a73361a4e3f7a2e51a7e64c7cd948c4a422846d2} that would warn users with old client certificates that they should upgrade them.  Finally, since the tests were were functional and the tooling was in place, I decided that it was time to deploy the changes.
+
+\subsection{Deploying and Documenting}
+Since I wanted to deploy my changes in the smoothest manner possible, I took some time to come up with a series of steps that would fulfill that purpose.  In addition to updating certificates, I had to do a couple of housekeeping tasks such as: update \htmladdnormallink{user connection instructions}{https://github.com/clinew/frostsnow.net/blob/master/instructions.tex}, add a root certificate location, and plan for a full transition.  Taking all of these into consideration, I then planned and executed the following series of steps: revising the user connection instructions, generating the new AFR root, generating the transitional certificates, configuring InspIRCd to use the transitional certificates, deploying the transitional certificates, updating the website with the revised connection instructions and the new AFR root, backing up the AFR root key in an offline location, scheduling a full transition time in the InspIRCd Message of the Day (MotD), and finally migrating the users which I owned to the new client certificates.  Thankfully, there were no surprises when I actually did this series of steps.
+
+With the server running the new AFR PKI, all that remained was me for to document my work.  You know, so I can use it to pick up women at bars.  Posteriority.  Or something.  To this end, I decided to write a \htmladdnormallink{\LaTeX white paper}{https://github.com/clinew/afr/blob/master/doc/afr.tex} and add it to the \htmladdnormallink{AFR tools}{https://github.com/clinew/afr} \texttt{doc} directory.  I then realized that, much to my annoyance, re-configuring my test environment to use AFR had broken my hacky InspIRCd tests, so I wrote a \htmladdnormallink{commit}{https://github.com/clinew/inspircdtests/commit/ce823ad6eb704cf0dc07a7d2036542b54a6cdded} to fix them; perhaps one day I'll implement an elegant solution to manage test environment configuration.  Last of all, I wrote (am writing?) this blog in order to finish documenting my work; this was most useful for the transitional PKI, since that fell outside of the scope of the AFR white paper.
+
+There's still a bunch of work that I'd like to do on AFR in order to get it into something that might actually be generally useful for people.  First and foremost will be figuring out whether I can actually even use indirect CRLs in a manner which suits my needs; if not, the whole scheme may fall apart without some clever alterations.  After that, usability will be key.  This may mean writing a network protocol, integrating AFR with a technology such as PAM, or writing some kind of wizard program.  While I'm glad to have this version complete, there's still plenty of work to be done.
+
+
+% Replacing an Encrypted Hard Drive on a RAID-5 Array
 \section{2020-04-12 Replacing an Encrypted Hard Drive on a RAID-5 Array}
 This blog entry is about my attempt to replace a failing drive on my home server's amateur-encrypted RAID-5 arrays.  While replacing a failing drive isn't particularly difficult, it must be done with care, and my situation was complicated by the \htmladdnormallink{encryption scripts}{https://github.com/clinew/gscripts} I had set-up around the array.  Yet, even this was not the end of my troubles, as an unexpected problem arose in the middle of my work.
 
