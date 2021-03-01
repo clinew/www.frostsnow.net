@@ -6,7 +6,20 @@
 
 Thoughts that are not worth their own blog.
 
-\subsection{2020-02-22}
+\subsection{2021-03-01}
+Thanks to \htmladdnormallink{this forum post}{https://bbs.archlinux.org/viewtopic.php?id=223241}, I learned that the workaround for:
+\begin{verbatim}
+gpg: key ID: public key "NAME (COMMENT) <EMAIL>" imported
+gpg: key ID/SUBID: error sending to agent: Permission denied
+gpg: error reading 'subkey.gpg': Permission denied
+gpg: import from 'subkey.gpg' failed: Permission denied
+gpg: Total number processed: 0
+gpg:               imported: 1
+gpg:       secret keys read: 1
+\end{verbatim}
+\ldots was to add \texttt{--pinentry-mode loopback}.
+
+\subsection{2021-02-22}
 I wrote a quick \htmladdnormallink{ebuild}{https://github.com/clinew/overlay_frostsnow/blob/master/games-server/valheim/valheim-9999.ebuild} for the \htmladdnormallink{Valheim}{https://www.valheimgame.com/} server.  No guarantees with regards to its efficacy.
 
 \subsection{2020-11-09}
