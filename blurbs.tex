@@ -6,6 +6,20 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2021-03-28}
+Some quick notes on setting up \htmladdnormallink{Pi-Hole}{https://discourse.pi-hole.net} on a \htmladdnormallink{BeagleBone Black}{https://beagleboard.org/black/} with a \htmladdnormallink{Debian image}{https://beagleboard.org/latest-images} installed.  I had to disable Nginx:
+\begin{verbatim}
+systemctl disable nginx
+\end{verbatim}
+I fixed the following \texttt{dnsmasq} issues:
+\begin{verbatim}
+FTL failed to start due to illegal repeated keyword at line 8 of /etc/dnsmasq.d/SoftAp0
+FTL failed to start due to cannot open or create lease file /var/run/dnsmasq.leases: Permission denied
+\end{verbatim}
+\ldots by opening \texttt{/etc/dnsmasq.d/SoftAp0} and removing both \texttt{cache-size=2048} and \texttt{dhcp-leasefile=/var/run/dnsmasq.leases} then opening \texttt{/etc/dnsmasq.d/01-pihole.conf} and adding \texttt{dhcp-leasefile=/var/run/pihole/leases}.  The changes to \texttt{SoftAp0} got reset on boot and even opening \texttt{/etc/default/bb-wl18xx} and changing \texttt{USE_GENERATED_DNSMASQ=yes} to \texttt{USE_GENERATED_DNSMASQ=no} didn't help, so I instead ran \texttt{chattr +i /etc/dnsmasq.d/SoftAp0}.  Lastly I ran \texttt{systemctl disable dnsmasq} which generates the following log message at boot (slightly edited) \texttt{FAILED Failed to start dnsmasq - ...t DHCP and caching DNS server.} but Pi-Hole seems to work fine anyways.
+
+Lastly, to always boot from the SDCard I opened \texttt{/boot/uEnv.txt} on the eMMC filesystem and un-commented \texttt{disable_uboot_overlay_emmc=1} (thanks to \htmladdnormallink{this page}{https://elinux.org/Beagleboard:BeagleBoneBlack_Debian#U-Boot_Disable_on-board_devices}).  Things appear to be working now\ldots
+
 \subsection{2021-03-01}
 Thanks to \htmladdnormallink{this forum post}{https://bbs.archlinux.org/viewtopic.php?id=223241}, I learned that the workaround for:
 \begin{verbatim}
