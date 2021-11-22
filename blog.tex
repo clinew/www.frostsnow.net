@@ -3625,7 +3625,6 @@ This was the first time I'd ever really heard the term "rectilineal angle" used,
 \begin{makeimage}
 \fbox{
 \begin{tikzpicture}
-	\definecolor{mycolor}{RGB}{217, 217, 217}; % Designed LaTeX2HTML transparency color.
 	\coordinate [label=above:B] (B) at (0, 2);
 	\coordinate [label=below:A] (A) at (0, -2);
 	\coordinate [label=right:D] (D) at (0, 0);
@@ -3637,8 +3636,8 @@ This was the first time I'd ever really heard the term "rectilineal angle" used,
 	\draw (D) -- (C) -- (A);
 	\draw [name path=af] (A) -- (F);
 	\path [name path=dh] (D) -- (245:3);
-	\draw [name intersections={of=af and dh}] (D) -- (intersection-1) coordinate [label={[label distance=1pt,fill=mycolor,inner sep=0.5pt]below:G}] (G);
-	\coordinate [label={[label distance=2pt,fill=mycolor,inner sep=0.5pt,anchor=335]165:H}] (H) at (245:2);
+	\draw [name intersections={of=af and dh}] (D) -- (intersection-1) coordinate [label={[label distance=1pt,fill=white,inner sep=0.5pt]below:G}] (G);
+	\coordinate [label={[label distance=2pt,fill=white,inner sep=0.5pt,anchor=335]165:H}] (H) at (245:2);
 \end{tikzpicture}
 }
 \end{makeimage}
