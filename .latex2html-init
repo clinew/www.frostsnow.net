@@ -1,5 +1,8 @@
 $ADDRESS = "Generated using LaTeX2html: <a href=\"https://github.com/clinew/www.frostsnow.net.git\">Source</a>";
 $CHILDLINE = "<HR>\n";
+# This file is only tested for when already inside the directory for the
+# relevant page, so a relative path fails and does not supply the style.
+$EXTERNAL_STYLESHEET = Cwd::abs_path("style.css");
 $EXTRA_IMAGE_SCALE = 2;
 
 sub top_navigation_panel {
