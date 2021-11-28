@@ -199,26 +199,26 @@ After a bit of contemplation, I realized that I could authorize friends using cl
 \begin{center}
 \begin{figure}
 \begin{makeimage}
-\newlength{\ugh}
-\settowidth{\ugh}{\texttt{I: New Root CA}}
+\newlength{\tmp}
+\settowidth{\tmp}{\texttt{I: New Root CA}}
 \fbox{
 \begin{tabular}{l|l|l}
 Old: & Transition: & New: \\
 \begin{tikzpicture}
-	\node (Root) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: Old Root CA} \\ \texttt{S: Old Root CA}}};
+	\node (Root) at (0, 0) [align=left,draw] {\parbox{\tmp}{\texttt{I: Old Root CA} \\ \texttt{S: Old Root CA}}};
 \end{tikzpicture}
 &
 \begin{tikzpicture}
-	\node (NewRoot) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
-	\node (Signing) at ($(NewRoot) + (0, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: Signing CA}}};
-	\node (OldRoot) at ($(Signing) + (0, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: Signing CA} \\ \texttt{S: Old Root CA}}};
+	\node (NewRoot) at (0, 0) [align=left,draw] {\parbox{\tmp}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
+	\node (Signing) at ($(NewRoot) + (0, -1.5)$) [align=left,draw] {\parbox{\tmp}{\texttt{I: New Root CA} \\ \texttt{S: Signing CA}}};
+	\node (OldRoot) at ($(Signing) + (0, -1.5)$) [align=left,draw] {\parbox{\tmp}{\texttt{I: Signing CA} \\ \texttt{S: Old Root CA}}};
 	\draw[-Stealth] (NewRoot) -- (Signing);
 	\draw[-Stealth] (Signing) -- (OldRoot);
 \end{tikzpicture}
 &
 \begin{tikzpicture}
-	\node (NewRoot) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
-	\node (Signing) at ($(NewRoot) + (0, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: Signing CA}}};
+	\node (NewRoot) at (0, 0) [align=left,draw] {\parbox{\tmp}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
+	\node (Signing) at ($(NewRoot) + (0, -1.5)$) [align=left,draw] {\parbox{\tmp}{\texttt{I: New Root CA} \\ \texttt{S: Signing CA}}};
 	\draw[-Stealth] (NewRoot) -- (Signing);
 \end{tikzpicture}
 \end{tabular}
@@ -233,24 +233,23 @@ Configuring the service such that clients who trusted both the old root and the 
 \begin{center}
 \begin{figure}
 \begin{makeimage}
-\newlength{\ugh}
-\settowidth{\ugh}{\texttt{I: New Root CA}}
+\settowidth{\tmp}{\texttt{I: New Root CA}}
 \fbox{
 \begin{tabular}{l|l|l}
 Old: & Transition: & New: \\
 \begin{tikzpicture}
-	\node (Root) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: Old Root CA} \\ \texttt{S: Old Root CA}}};
+	\node (Root) at (0, 0) [align=left,draw] {\parbox{\tmp}{\texttt{I: Old Root CA} \\ \texttt{S: Old Root CA}}};
 	\node[left,text=green!60!black] (Trusted) at (Root.west) {trusted};
 	\draw (Root) -- (Trusted);
 \end{tikzpicture}
 &
 \begin{tikzpicture}
-	\node (OldRoot) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: Old Root CA} \\ \texttt{S: Old Root CA}}};
+	\node (OldRoot) at (0, 0) [align=left,draw] {\parbox{\tmp}{\texttt{I: Old Root CA} \\ \texttt{S: Old Root CA}}};
 	\node[left,text=green!60!black] (OldTrusted) at (OldRoot.west) {\parbox{1.1cm}{\centering old \\ trusted}};
-	\node (NewRoot) at (6, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
+	\node (NewRoot) at (6, 0) [align=left,draw] {\parbox{\tmp}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
 	\node[left,text=green!60!black] (NewTrusted) at (NewRoot.west) {\parbox{1.1cm}{\centering new \\ trusted}};
-	\node (CrossRoot) at ($(OldRoot) + (1.5, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: Old Root CA} \\ \texttt{S: New Root CA}}};
-	\node (Service) at ($(CrossRoot) + (1.5, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: Service}}};
+	\node (CrossRoot) at ($(OldRoot) + (1.5, -1.5)$) [align=left,draw] {\parbox{\tmp}{\texttt{I: Old Root CA} \\ \texttt{S: New Root CA}}};
+	\node (Service) at ($(CrossRoot) + (1.5, -1.5)$) [align=left,draw] {\parbox{\tmp}{\texttt{I: New Root CA} \\ \texttt{S: Service}}};
 	\draw[-Stealth] (OldRoot) -- (CrossRoot);
 	\draw[-Stealth] (NewRoot) -- (Service);
 	\draw[-Stealth] (CrossRoot) -- (Service);
@@ -262,9 +261,9 @@ Old: & Transition: & New: \\
 \end{tikzpicture}
 &
 \begin{tikzpicture}
-	\node (Root) at (0, 0) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
+	\node (Root) at (0, 0) [align=left,draw] {\parbox{\tmp}{\texttt{I: New Root CA} \\ \texttt{S: New Root CA}}};
 	\node[left,text=green!60!black] (Trusted) at (Root.west) {trusted};
-	\node (Service) at ($(Root) + (0, -1.5)$) [align=left,draw] {\parbox{\ugh}{\texttt{I: New Root CA} \\ \texttt{S: Service}}};
+	\node (Service) at ($(Root) + (0, -1.5)$) [align=left,draw] {\parbox{\tmp}{\texttt{I: New Root CA} \\ \texttt{S: Service}}};
 	\draw[-Stealth] (Root) -- (Service);
 \end{tikzpicture}
 \end{tabular}
@@ -5238,8 +5237,8 @@ The server trusts Certificate Authorities (CAs) A and B to issue valid certifica
 	[ca/.style={rectangle,draw=green!60!black,minimum height=1cm,minimum width=1.5cm},
 	leaf/.style={rectangle,draw=red,minimum height=1cm, minimum width=1.5cm},
 	x/.pic={
-		\draw[--] (-1mm,1mm) -- (1mm,-1mm);
-		\draw[--] (-1mm,-1mm) -- (1mm,1mm);
+		\draw[-] (-1mm,1mm) -- (1mm,-1mm);
+		\draw[-] (-1mm,-1mm) -- (1mm,1mm);
 	}]
 	% Certificates.
 	\node (A) at (0, 0) [ca] {A};
