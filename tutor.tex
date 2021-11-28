@@ -33,7 +33,6 @@ Learning Minetest is a great way to play, code, and share freely!
 \LaTeX is a document-preparation system, like that \emph{other} word-processor, but far superior for complex documents and mathematical typesetting.  This is an example of a recursion tree which I typeset in \LaTeX:
 \begin{center}
 \begin{makeimage}
-\reflectbox{\reflectbox{% _THIS_ exists because otherwise LaTeX2HTML can't figure out where and how to crop the damn image.
 \begin{forest}
 [$n$, for tree={s sep=-1mm},name=level1
 	[1/2
@@ -116,12 +115,10 @@ Learning Minetest is a great way to play, code, and share freely!
 % Bottom brace.
 \draw [decorate,decoration={brace,mirror}] (leaf-3.south west) -- (leaf3.south east) node(leaftotal)[midway,below]{$n^{\log_2(3)}$};
 \end{forest}
-}}
 \end{makeimage}
 \end{center}
 \ldots this is the algorithmic complexity approximation derived from the recurrence tree:
-\begin{center}
-\begin{makeimage} % Also shouldn't be needed but otherwise it inserts lots of whitespace below the equation.
+\begin{figure} % Seems to help with eqnarray* on the latest version (as of 2021-11-27) of LaTeX2HTML.
 \begin{eqnarray*}
 	T(n) &=& n + \frac{3}{2}n + \left(\frac{3}{2}\right)^2n + \cdots + \left(\frac{3}{2}\right)^{\log_2(n) - 1}n + \Theta(n^{\log_2(3)}) \\
 	&=& \sum_{i=0}^{\log_2(n)-1} \left(\frac{3}{2}\right)^in + \Theta(n^{\log_2(3)}) \\
@@ -133,8 +130,7 @@ Learning Minetest is a great way to play, code, and share freely!
 	&=& 2n^{\log_2(3)} - 2n + \Theta(n^{\log_2(3)}) \\
 	&=& \Theta(n^{\log_2(3)})
 \end{eqnarray*}
-\end{makeimage}
-\end{center}
+\end{figure}
 \ldots but this is just eye candy (or perhaps horrors from the abyss if you find math intimidating), what I cannot show you here is how much easier it is to construct references, tables of contents, indices, \&c.
 
 % GPG example
