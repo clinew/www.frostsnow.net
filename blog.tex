@@ -18,6 +18,437 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+% Quieting Spinning Disk Drives
+\section{2022-01-03 Quieting Spinning Disk Drives}
+A while ago I wrote about the \htmlref{ordeal}{2020-04-12-replacing-hard-drive} I went through when replacing a failing hard drive.  When the ordeal was over, I went to lie down and rest with a job well done, untill\ldots Cla-tunk!  Click!  Bzzzt-click!  Apparently this new drive was much louder than my old one; at least, the sound was intensified enough in that drowsy state in-between sleeping and waking states to prevent me from actually falling asleep, not unlike the \htmladdnormallink{ticking clocks in Pinnochio}{https://invidious.snopyta.org/watch?v=is4s0T_jbrs}.  Since I was renting a single bedroom, moving the server into another room was out of the question and I instead used other coping mechanisms such as earplugs and placing my pillow over my head.  This workaround was effective, and, since solving the clicking harddrive problem did not appear straightforward, I constantly delayed finding a solution to this problem in favor of other work.  Eventually, I came up with a partial solution, but my circumstances changed such that finding a full solution was no longer a concern.
+
+\subsection{\texttt{iotop}}
+Unsurprisingly, most search results for I/O issues involve maximizing throughput and latency, and suggested tools for that particular purpose.  Those tools were not of interest to me, since my concern was about what was generating the \emph{intermittent} writes on my system.  After some searching I decided to try out \texttt{iotop}.  This didn't immediately work because my kernel was not compiled with \texttt{CONFIG_TASK_IO_ACCOUNTING}, so I had to re-compile and restart the server first.  Once that was done I monitored the results and noticed that a few processes seemed to be constantly generating IO:
+\begin{verbatim}
+	  TID  PRIO  USER     DISK READ  DISK WRITE  SWAPIN     IO>    COMMAND
+	  694 be/3 root        0.00 B/s    0.00 B/s  0.00 %  2.08 % [jbd2/md0-8]
+	22780 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.09 % [kworker/1:1-events]
+	22780 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.08 % [kworker/1:1-events_freezable_power_]
+\end{verbatim}
+Note that the above listing is actually composed of a concatenation of multiple lines sampled at different times and is not a snapshot of a single time.  What the above listing does not clearly show is that while the \verb|[jbd2/md0-8]| command (hereafter referred to as \texttt{jbd2}) indeed generated the most IO at a time, the \verb|[kworker/1:1-events]| command (hereafter referred to as \texttt{kworker}) was almost constantly generating minute amounts of IO.  A brief look at the \texttt{jbd2} command also showed it to be a \htmladdnormallink{Journaling Block Device}{https://en.wikipedia.org/wiki/Journaling_block_device} process, so I figured that perhaps it was writing journaling data because of what was happening in the \texttt{kworker} process, so I decided to look further into that process.
+
+\subsection{\texttt{kworker}}
+While the \texttt{kworker} process was actually submitting the IO, it wasn't immediately obvious what was causing the process to generate IO.  After some searching I found \htmladdnormallink{an old LKML (Linux Kernel Mailing List) thread}{https://lkml.org/lkml/2011/3/31/68} which suggested using the following commands in order to get debugging information:
+\begin{verbatim}
+	$ echo workqueue:workqueue_queue_work > /sys/kernel/debug/tracing/set_event
+	$ cat /sys/kernel/debug/tracing/trace_pipe > out.txt
+\end{verbatim}
+A short while later I also found these same commands in \texttt{Documentation/core-api/workqueue.rst}.  Once again, I needed to enable some additional kernel options: \texttt{CONFIG_DEBUG_FS} and \texttt{CONFIG_FTRACE} were the obvious ones, but it wasn't clear which entries under the \texttt{Tracers} menu were important, so I guessed and enabled a large number of them.  After another recompile and restart, I used the above-mentioned commands in order to gather my data.  This generated a very large amount of output very quickly, but a few recurring entries stuck out at me:
+\begin{verbatim}
+	kworker/0:1-20    [000] d...   422.386720: workqueue_queue_work: work struct=0000000062e60b79 function=vmstat_update workqueue=000000005d84bd29 req_cpu=0 cpu=0
+	kworker/0:1-20    [000] d...   422.826981: workqueue_queue_work: work struct=00000000c7c3684d function=kcryptd_crypt workqueue=000000007cde8437 req_cpu=2 cpu=4294967295
+	kworker/0:1-20    [000] d...   423.066760: workqueue_queue_work: work struct=00000000b9871e0f function=ata_sff_pio_task workqueue=000000006a76fa14 req_cpu=2 cpu=0
+	kworker/0:1-20    [000] d.s.   423.246907: workqueue_queue_work: work struct=0000000033e5a536 function=dm_wq_work workqueue=000000005448332a req_cpu=2 cpu=0
+\end{verbatim}
+I figured that the \texttt{kcryptd_crypt} and \texttt{dm_wq_work} functions were likely related to encryption and the queueing of work and were thus unavoidable, but I was most curious what the \texttt{vmstat_update} function was doing since, while I did have a test Virtual Machine (VM) that I would occasionally run, it was not running at the time.  From reading this \htmladdnormallink{LKML e-mail}{https://lwn.net/Articles/598235/}, I deduced that the function was a way to periodically update metrics for VM resource usage:
+\begin{verbatim}
+	The current vmstat_update mechanism depends on a deferrable timer
+	firing every other second by default which registers a work queue item
+	that runs on the local CPU, with the result that we have 1 interrupt
+	and one additional schedulable task on each CPU every 2 seconds
+\end{verbatim}
+Perhaps tuning this mechanism would fix my IO problem?  From the kernel documentation at \texttt{Documentation/admin-guide/kernel-per-CPU-kthreads.rst} I found that the firing interval could be modified by writing to \texttt{/proc/sys/vm/stat_interval}.  I then attempted to decrease the interval to once a minute with the following:
+\begin{verbatim}
+	# echo 60 > /proc/sys/vm/stat_interval
+\end{verbatim}
+This did indeed serve to reduce the work queued by \texttt{vmstat_update}, though it did not, unfortunately, quiet my disks.
+
+I went back to monitoring the \texttt{kworker}, and eventually noticed through the noise that the following work was being queued on a 2-second periodic basis:
+\begin{verbatim}
+	kworker/0:1-18033 [000] d...  8069.014025: workqueue_queue_work: work struct=00000000b9871e0f function=ata_sff_pio_task workqueue=000000006a76fa14 req_cpu=2 cpu=0
+	kworker/0:1-18033 [000] d...  8071.093989: workqueue_queue_work: work struct=00000000b9871e0f function=ata_sff_pio_task workqueue=000000006a76fa14 req_cpu=2 cpu=0
+	kworker/0:1-18033 [000] d...  8073.173961: workqueue_queue_work: work struct=00000000b9871e0f function=ata_sff_pio_task workqueue=000000006a76fa14 req_cpu=2 cpu=0
+	kworker/0:1-18033 [000] d...  8075.253940: workqueue_queue_work: work struct=00000000b9871e0f function=ata_sff_pio_task workqueue=000000006a76fa14 req_cpu=2 cpu=0
+\end{verbatim}
+SFF?  PIO?  I had no idea what any of these were.  I didn't find anything useful in a search, so I looked through the source code and found that the function was being called in \texttt{drivers/ata/libata-sff.c}:
+\begin{verbatim}
+	void ata_sff_port_init(struct ata_port *ap)
+	{
+	        INIT_DELAYED_WORK(&ap->sff_pio_task, ata_sff_pio_task);
+	        ap->ctl = ATA_DEVCTL_OBS;
+	        ap->last_ctl = 0xFF;
+	}
+\end{verbatim}
+This function came with some comments for documentation that I did not understand, much less did I understand the libATA documentation at \texttt{Documentation/driver-api/libata.rst}.  After some more searching I found out that PIO stood for \htmladdnormallink{Programmed Input/Output}{https://en.wikipedia.org/wiki/Programmed_input/output} and that SFF likely stood for \htmladdnormallink{Small Form Factor}{https://en.wikipedia.org/wiki/Small_Form_Factor_committee}, though this did little to help me understand my I/O issue.  One thing I did notice while browsing the code was that the following definition in \texttt{include/linux/libata.h}:
+\begin{verbatim}
+	struct delayed_work     sff_pio_task;
+\end{verbatim}
+\ldots was only defined if \texttt{CONFIG_ATA_SFF} was defined; unfortunately, \texttt{CONFIG_ATA_SFF} was required for \texttt{CONFIG_ATA_PIIX} and I wasn't going to go about trying to unload my SATA controller drivers.  From here I started to simply guess at solutions in order to see if I could find anything that stuck.  From reading the Wikipedia article on PIO, I deduced that DMA (Direct Memory Access) was important, perhaps the new drive had some variation in DMA capabilities that was causing extra IO?  I then used the \texttt{hdparm} utility in order to examine each drive for differences:
+\begin{verbatim}
+	hesse ~ # hdparm -I /dev/sda | grep -i dma
+	        DMA: mdma0 mdma1 mdma2 udma0 udma1 udma2 udma3 udma4 udma5 *udma6
+	hesse ~ # hdparm -I /dev/sdb | grep -i dma
+	        DMA: mdma0 mdma1 mdma2 udma0 udma1 udma2 udma3 udma4 udma5 *udma6
+	           *    WRITE_{DMA|MULTIPLE}_FUA_EXT
+	           *    URG for READ_STREAM[_DMA]_EXT
+	           *    URG for WRITE_STREAM[_DMA]_EXT
+	hesse ~ # hdparm -I /dev/sdc | grep -i dma
+	        DMA: mdma0 mdma1 mdma2 udma0 udma1 udma2 udma3 udma4 udma5 *udma6
+	                DMA Setup Auto-Activate optimization
+\end{verbatim}
+Well, I had no idea what to do with this information, so I was stuck again.  At some point it occurred to me that since the drive was supposedly generating IO, it was probably generating some kind of interrupt, so I decided to run \texttt{watch cat /proc/interrupts} to see if I could track the IO to a particular drive.  From watching the output, I noticed that the following was generating two interrupts every two seconds:
+\begin{verbatim}
+	17:          0    1738624   IO-APIC  17-fasteoi   pata_marvell
+\end{verbatim}
+Since the interrupts appeared to come from the \texttt{pata_marvell} driver, I attempted to use \texttt{sysfs} in order to get the PCI path that the driver was attached to:
+\begin{verbatim}
+	hesse ~ # realpath /sys/module/pata_marvell/drivers/pci:pata_marvell/0000:02:00.0
+	/sys/devices/pci0000:00/0000:00:1c.1/0000:02:00.0
+\end{verbatim}
+Then compare this to the hard drive PCI paths:
+\begin{verbatim}
+	lrwxrwxrwx 1 root root 0 Nov  8 19:33 sda -> ../../devices/pci0000:00/0000:00:1f.2/ata1/host0/target0:0:0/0:0:0:0/block/sda
+	lrwxrwxrwx 1 root root 0 Nov  8 19:33 sdb -> ../../devices/pci0000:00/0000:00:1f.2/ata1/host0/target0:0:1/0:0:1:0/block/sdb
+	lrwxrwxrwx 1 root root 0 Nov  8 19:33 sdc -> ../../devices/pci0000:00/0000:00:1f.5/ata3/host2/target2:0:0/2:0:0:0/block/sdc
+	lrwxrwxrwx 1 root root 0 Nov  8 19:33 sr0 -> ../../devices/pci0000:00/0000:00:1c.1/0000:02:00.0/ata5/host4/target4:0:0/4:0:0:0/block/sr0
+\end{verbatim}
+Turns out that the driver was actually attached to an \emph{optical} drive and not a regular hard drive.  Well, I really didn't have any use for the optical drive, so I powered down the computer, unplugged the drive (but kept it in the case), then brought the server backup again.  After examining the server for a while I noticed that the periodic blinking of the hard drive light had stopped, the \texttt{kworker} process stopped generating constant small bits of IO, and the driver was no longer generating interrupts.  That was nice, but when I went to bed that night (reminder: I worked on this very intermittently) the drives were still constantly generating noise, so unplugging the optical drive didn't solve the overall problem.
+
+\subsection{\texttt{jbd2}}
+At this point, the noise was now being generated consistently whenever a line such as the following would appear in \texttt{iotop}:
+\begin{verbatim}
+	825 be/3 root        0.00 B/s   15.34 K/s  0.00 %  4.75 % [jbd2/md0-8]
+\end{verbatim}
+Yet there didn't seem to be any process generating worthwhile IO, so why would the journaling process be running?  Some searching turned up \htmladdnormallink{this thread}{https://forum.openmediavault.org/index.php?thread/6415-jbd2-constantly-writing-to-raid5-disk/} which suggested mounting with the \texttt{noatime} argument.  I looked, and I was using \texttt{relatime}, so I switched it to \texttt{noatime} and also tried adding the \texttt{lazytime} feature.  This seemed to help a little; the journal didn't seem to run unless another process ran first, but at this point \texttt{irssi} seemed to generate enough intermittent IO to continue to be a problem.  Was I really getting data every few seconds, though?  It seemed a bit much to me, so I used \texttt{strace} in order to monitor the \texttt{irssi} process' system calls, a snippet of which is below:
+\begin{verbatim}
+	poll([{fd=0, events=POLLIN|POLLPRI}, {fd=3, events=POLLIN}, {fd=4, events=POLLIN|POLLPRI}, {fd=5, events=POLLIN|POLLPRI}, {fd=7, events=POLLIN|POLLPRI}, {fd=9, events=POLLIN|POLLPRI}, {fd=12, events=POLLIN|POLLPRI}], 7, 499) = 0 (Timeout)
+	stat("/etc/localtime", {st_mode=S_IFREG|0644, st_size=2819, ...}) = 0
+	stat("/etc/localtime", {st_mode=S_IFREG|0644, st_size=2819, ...}) = 0
+	poll([{fd=0, events=POLLIN|POLLPRI}, {fd=3, events=POLLIN}, {fd=4, events=POLLIN|POLLPRI}, {fd=5, events=POLLIN|POLLPRI}, {fd=7, events=POLLIN|POLLPRI}, {fd=9, events=POLLIN|POLLPRI}, {fd=12, events=POLLIN|POLLPRI}], 7, 1) = 0 (Timeout)
+	poll([{fd=0, events=POLLIN|POLLPRI}, {fd=3, events=POLLIN}, {fd=4, events=POLLIN|POLLPRI}, {fd=5, events=POLLIN|POLLPRI}, {fd=7, events=POLLIN|POLLPRI}, {fd=9, events=POLLIN|POLLPRI}, {fd=12, events=POLLIN|POLLPRI}], 7, 500) = 0 (Timeout)
+\end{verbatim}
+The calls to \texttt{poll} I could understand, but why \texttt{stat}?  Perhaps this was the source of constant access which was diminished with the \texttt{noatime} and \texttt{lazytime} options?  This \htmladdnormallink{Stack Overflow answer}{https://stackoverflow.com/questions/4554271/how-to-avoid-excessive-stat-etc-localtime-calls-in-strftime-on-linux} suggested that this was a glibc artifact that came of not having the \texttt{TZ} environment variable set.  I didn't feel like restarting \texttt{irssi}, so I searched for a way to set environment variables in a running process and came across this \htmladdnormallink{Stack Overflow answer}{https://unix.stackexchange.com/questions/38205/change-environment-of-a-running-process} which suggested using \texttt{gdb} in order to set the environment variable as such:
+\begin{verbatim}
+	(gdb) attach process_id
+	(gdb) call putenv ("TZ=:/etc/localtime")
+	(gdb) detach
+\end{verbatim}
+Unfortunately, when I tried to make the system call \texttt{gdb} would barf out the following error message, \texttt{No symbol table is loaded.  Use the "file" command.}.  I barely know \texttt{gdb}, so I simply tried to point the \texttt{file} command at the \texttt{irssi} binary:
+\begin{verbatim}
+	(gdb) file /usr/bin/irssi
+	A program is being debugged already.
+	Are you sure you want to change the file? (y or n) y
+	Reading symbols from /usr/bin/irssi...
+	(No debugging symbols found in /usr/bin/irssi)
+	Reading symbols from /lib64/ld-linux-x86-64.so.2...
+	(No debugging symbols found in /lib64/ld-linux-x86-64.so.2)
+\end{verbatim}
+I guess that \texttt{gdb} was unhappy because I didn't compile debugging symbols into the program.  Whatever.  I wasn't really convinced that the \texttt{stat} calls were generating I/O anyways since I had enabled the \texttt{noatime} option and I didn't feel like digging into it further.  I went back to monitoring \texttt{irssi} with \texttt{strace} and noticed that most writes seemed to correspond with actual messages but mostly channel part and join data.  As an experiment, I disabled logging by running \texttt{/set autolog off} in \texttt{irssi} and then listening, and, sure enough, my disks finally became much more quiet.  This was great, but not really practical, because I wanted to log that data and so I needed a different solution.
+
+I then began looking to see if I could somehow quiet the journaling process.  While searching through the \texttt{ext4} man page, I eventually found the \texttt{commit=nrsec} option, and set it with the following:
+\begin{verbatim}
+	# mount -o remount,commit=60
+\end{verbatim}
+This actually had the effect of limiting the \texttt{jdb2} process to once a minute according to \texttt{iotop}, but I noticed that the \texttt{Actual DISK WRITE:} statistic would still show intermittent activity in-between commits, often associated with the clicking of the hard drives.  I thought about it and this actually made sense: the actual writes were the log data being written to disk while the \texttt{jdb2} writes were associated metadata being committed to the journal periodically.  In order to delay the writes to the disk, I'd have to tweak the I/O scheduler.
+
+\subsection{I/O scheduler}
+The first order of business was to determine which scheduler was running for each disk and what options were available:
+\begin{verbatim}
+	hesse /sys/class/block # cat /sys/class/block/sda/queue/scheduler
+	[mq-deadline] kyber none
+\end{verbatim}
+Since I had forgotten the details of the scheduler, I did some searching and found \htmladdnormallink{this presentation}{https://hzliu123.github.io/linux-kernel/Linux\%20IO\%20Schedulers.pdf} which suggested that I could use the \texttt{write_expire} parameter in order to delay writes; looking also at the kernel documentation at \texttt{Documentation/block/deadline-iosched.rst} suggested the same thing.  Based on this information, I then attempted to use a 1-minute write expire on each drive:
+\begin{verbatim}
+	echo 60000 > /sys/block/sda/queue/iosched/write_expire
+	echo 60000 > /sys/block/sdb/queue/iosched/write_expire
+	echo 60000 > /sys/block/sdc/queue/iosched/write_expire
+\end{verbatim}
+This seemed to do the trick!  The disks were finally much more quiet than before, and the \texttt{irssi} data was still being logged.  Looking at the rest of the options for the scheduler I also decided to set \texttt{fifo_batch} from \texttt{16} to \texttt{256} so that a larger number of writes could be queued before being flushed.
+
+Thus the total modifications that I had made were to first remove the CD-ROM drive, which may or may not have been useful regarding hard drive noise, though it did prevent my computer's I/O LED from lighting up as much.  Next, to increase the VM statistics-updating mechanism from once a second to once a minute, which also may not actually have been useful if it was only written in memory.  After that, to change \texttt{relatime} to \texttt{noatime} and add the \texttt{lazymount} and \texttt{commit=60} arguments to the root filesystem.  Lastly, to configure the \texttt{deadline} I/O scheduler to have a write delay of 1 minutes rather than 5 seconds and increase the batch count from 16 to 256.
+
+Though I used certain values for testing, I slightly tweaked them afterwards.  I bumped up the VM statistics-updating interval to 3600 seconds (1 hour), because I don't use it.  As for the journal commit interval and write starvation period, I increased both of those to 3 minutes (180 seconds and 180000 milliseconds, respectively).  I'm really not in any particular rush to get the data written to disk, though it would be a good idea for me to get a UPS that sends a power-down command to my computer when the power starts to run out\ldots~I also increased the FIFO queue size to 1024, though I don't have any actual empiric data to back that decision.  Finally, it was time to make the settings permanent.
+
+\subsection{Setting on boot}
+
+While figuring out the configuration settings needed to quiet the disks down was most of the battle, one final obstacle remained: to configure the settings at boot so I wouldn't need to manually re-configure them.  The CD-ROM being disconnected didn't need any configuration.  Since the VM statistics-updating mechanism was part of \texttt{procfs}, it could be updated by opening \texttt{/etc/sysctl.conf} and adding the line \texttt{vm.stat_interval = 3600}.  Configuring the \texttt{jbd2} process was a matter of updating the root filesystem mount options in \texttt{/etc/fstab} to include \texttt{lazytime,commit=180} (I doubt that \texttt{noatime} is needed with \texttt{lazytime}).  Configuring the I/O schedulers was a bit more tricky, though.  According to \htmladdnormallink{this gist}{https://gist.github.com/l1x/4049825}, there is no mechanism similar to \texttt{sysctl} to set \texttt{sysfs} settings at boot.  Instead, since I am running Gentoo, I decided to use an OpenRC service instead.  The first step was to create the following file at \texttt{/etc/init.d/iohush}:
+\begin{verbatim}
+	#!/sbin/openrc-run
+
+	name="iohush"
+	description="Increase write starve time in order to silence noisy spinning disks"
+
+	depend() {
+	        after sysfs
+	}
+
+	start() {
+	        echo 180000 > /sys/block/sda/queue/iosched/write_expire
+	        echo 180000 > /sys/block/sdb/queue/iosched/write_expire
+	        echo 180000 > /sys/block/sdc/queue/iosched/write_expire
+	        echo 256 > /sys/block/sda/queue/iosched/fifo_batch
+	        echo 256 > /sys/block/sdb/queue/iosched/fifo_batch
+	        echo 256 > /sys/block/sdc/queue/iosched/fifo_batch
+	}
+\end{verbatim}
+Note the dependency on \texttt{sysfs}, and the definition of the \texttt{start} function which runs the shell commands in order to configure the I/O scheduler.  With the start-up script written I then made it executable and added it to the \texttt{boot} runlevel:
+\begin{verbatim}
+	chmod 0755 /etc/init.d/iohush
+	rc-update add iohush boot
+\end{verbatim}
+With this done the script would automatically configure the I/O scheduler on boot!  Thus all configuration would now be in place on boot, and I would hopefully be able to sleep without having to reach for the earplugs once I got tired of hearing the hard drives click.
+
+A better option might have been to use solid state drives instead.
+
+\subsection{Continued troubleshooting}
+
+After a prolonged period I had to admit to myself that my solution was not quite working as intended.  Although I/O requests were not dispatching requests immediately or nearly as frequently, I would still oftentimes hear more clicking than I desired (though not enough to keep me awake on all but the most restless nights).  I played around with a couple more settings, such as setting \texttt{sd*/queue/nr_requests} from \texttt{2} to \texttt{256}, \texttt{sd*/queue/max_sectors_kb} from \texttt{128} to \texttt{25000}, and \texttt{sd*/queue/iosched/writes_starved} from \texttt{2} to \texttt{128}.  None of these seemed to help (though my hopes were not high).
+
+After spending some long periods monitoring \texttt{iotop} I noticed that there appeared to be two main patterns appearing during I/O:
+\begin{verbatim}
+	Pattern 1:
+	Actual DISK READ:       0.00 B/s | Actual DISK WRITE:       6.77 K/s
+
+	Pattern 2 (two subsequent polls):
+	Actual DISK READ:       0.00 B/s | Actual DISK WRITE:      12.48 K/s
+	Actual DISK READ:       0.00 B/s | Actual DISK WRITE:    1966.06 B/s
+\end{verbatim}
+Curious if I could find anything more out about this pattern, I attempted to use \texttt{iostat} to monitor the disks.  I would open \texttt{iotop}, then, in another terminal, sync the disks, run \texttt{iostat}, wait for write activity to appear in the terminal with \texttt{iotop} running, then quickly run \texttt{iostat} again.  The result would be categorized based on the corresponding \texttt{iotop} pattern it matched until I had 3 samples of each (the 2nd pattern appeared less frequently in testing).  This gave me the following data points:
+\begin{verbatim}
+	Headers:
+	Device             tps    kB_read/s    kB_wrtn/s    kB_dscd/s    kB_read    kB_wrtn    kB_dscd
+
+	Pattern #1:
+	Sample 1:
+	sda               3.00         6.77        16.12         0.00   19551420   46595192          0
+	sdb               3.15         6.75        16.08         0.00   19505657   46474388          0
+	sdc               3.57         6.72        16.10         0.00   19405438   46513572          0
+
+	sda               3.00         6.77        16.12         0.00   19551420   46595197          0
+	sdb               3.15         6.75        16.08         0.00   19505657   46474393          0
+	sdc               3.57         6.72        16.10         0.00   19405438   46513573          0
+
+
+	Sample 2:
+	sda               3.00         6.77        16.12         0.00   19551440   46595206          0
+	sdb               3.15         6.75        16.08         0.00   19505661   46474418          0
+	sdc               3.57         6.72        16.10         0.00   19405438   46513598          0
+
+	sda               3.00         6.77        16.12         0.00   19551440   46595211          0
+	sdb               3.15         6.75        16.08         0.00   19505661   46474423          0
+	sdc               3.57         6.71        16.09         0.00   19405438   46513599          0
+
+
+	Sample 3:
+	sda               3.00         6.76        16.12         0.00   19551592   46595376          0
+	sdb               3.15         6.75        16.08         0.00   19505689   46474716          0
+	sdc               3.57         6.71        16.09         0.00   19405442   46513856          0
+
+	sda               3.00         6.76        16.12         0.00   19551592   46595381          0
+	sdb               3.15         6.75        16.08         0.00   19505689   46474721          0
+	sdc               3.57         6.71        16.09         0.00   19405442   46513857          0
+
+	Pattern #2:
+	Sample 1:
+	sda               3.00         6.76        16.12         0.00   19551536   46595324          0
+	sdb               3.15         6.75        16.08         0.00   19505677   46474620          0
+	sdc               3.57         6.71        16.09         0.00   19405438   46513768          0
+
+	sda               3.00         6.76        16.12         0.00   19551536   46595329          0
+	sdb               3.15         6.75        16.08         0.00   19505681   46474621          0
+	sdc               3.57         6.71        16.09         0.00   19405438   46513773          0
+
+
+	Sample 2:
+	sda               3.00         6.76        16.12         0.00   19551624   46595398          0
+	sdb               3.15         6.75        16.08         0.00   19505689   46474782          0
+	sdc               3.57         6.71        16.09         0.00   19405450   46513902          0
+
+	sda               3.00         6.76        16.12         0.00   19551624   46595403          0
+	sdb               3.15         6.75        16.08         0.00   19505689   46474787          0
+	sdc               3.57         6.71        16.09         0.00   19405450   46513903          0
+
+
+	Sample 3:
+	sda               3.00         6.76        16.12         0.00   19551716   46595823          0
+	sdb               3.15         6.75        16.08         0.00   19505693   46475127          0
+	sdc               3.57         6.71        16.09         0.00   19405462   46514383          0
+
+	sda               3.00         6.76        16.12         0.00   19551716   46595828          0
+	sdb               3.15         6.75        16.08         0.00   19505693   46475128          0
+	sdc               3.57         6.71        16.09         0.00   19405462   46514388          0
+\end{verbatim}
+The most interesting piece of this data were the consistent changes in \texttt{kB_wrtn}.  Of note was that in each case two drives would show an increment of \texttt{5} while the other would show an increment of \texttt{1}.  This made sense: the RAID-5 set-up was mirroring changes across two drives while the 3rd drive only had its event counter updated.  Unfortunately, the data which I gathered did not show any difference in quantity of writes between the two I/O patterns observed.  Casual observation while gathering the data also appeared to show that the first pattern was generated by \texttt{irssi} while the second pattern was generated by \texttt{atheme-services}, so I decided to re-gather some data while also taking note of the programs generating the I/O:
+\begin{verbatim}
+	fail2ban (10k):
+	Sample 1:
+	md0               4.34        10.51        28.34         0.00   30382489   81938988          0
+	sda               3.00         6.76        16.12         0.00   19551716   46596031          0
+	sdb               3.15         6.75        16.07         0.00   19505697   46475227          0
+	sdc               3.57         6.71        16.09         0.00   19405466   46514551          0
+
+	md0               4.34        10.51        28.34         0.00   30382489   81938996          0
+	sda               3.00         6.76        16.12         0.00   19551716   46596040          0
+	sdb               3.14         6.75        16.07         0.00   19505697   46475232          0
+	sdc               3.57         6.71        16.09         0.00   19405466   46514556          0
+
+
+	irssi (Pattern 1, 6K):
+	Sample 1:
+	md0               4.34        10.51        28.34         0.00   30382489   81939088          0
+	sda               3.00         6.76        16.11         0.00   19551716   46596126          0
+	sdb               3.14         6.75        16.07         0.00   19505697   46475266          0
+	sdc               3.57         6.71        16.09         0.00   19405466   46514626          0
+
+	md0               4.34        10.51        28.34         0.00   30382489   81939092          0
+	sda               3.00         6.76        16.11         0.00   19551716   46596131          0
+	sdb               3.14         6.75        16.07         0.00   19505697   46475267          0
+	sdc               3.57         6.71        16.09         0.00   19405466   46514631          0
+
+
+	Sample 2:
+	md0               4.34        10.51        28.34         0.00   30382489   81939120          0
+	sda               3.00         6.76        16.11         0.00   19551716   46596153          0
+	sdb               3.14         6.75        16.07         0.00   19505697   46475277          0
+	sdc               3.57         6.71        16.09         0.00   19405466   46514661          0
+
+	md0               4.34        10.51        28.34         0.00   30382489   81939124          0
+	sda               3.00         6.76        16.11         0.00   19551716   46596158          0
+	sdb               3.14         6.75        16.07         0.00   19505697   46475278          0
+	sdc               3.57         6.71        16.09         0.00   19405466   46514666          0
+
+
+	Sample 3:
+	md0               4.34        10.51        28.33         0.00   30382489   81939388          0
+	sda               3.00         6.76        16.11         0.00   19551724   46596394          0
+	sdb               3.14         6.74        16.07         0.00   19505701   46475398          0
+	sdc               3.57         6.71        16.08         0.00   19405478   46514874          0
+
+	md0               4.34        10.51        28.33         0.00   30382489   81939392          0
+	sda               3.00         6.76        16.11         0.00   19551724   46596399          0
+	sdb               3.14         6.74        16.07         0.00   19505701   46475399          0
+	sdc               3.57         6.71        16.08         0.00   19405478   46514879          0
+
+
+	irssi (Pattern 2, 10k-1000b):
+	Sample 1:
+	md0               4.34        10.51        28.33         0.00   30382489   81939316          0
+	sda               3.00         6.76        16.11         0.00   19551724   46596326          0
+	sdb               3.14         6.75        16.07         0.00   19505697   46475362          0
+	sdc               3.57         6.71        16.08         0.00   19405474   46514822          0
+
+	md0               4.34        10.51        28.33         0.00   30382489   81939320          0
+	sda               3.00         6.76        16.11         0.00   19551724   46596331          0
+	sdb               3.14         6.75        16.07         0.00   19505697   46475367          0
+	sdc               3.57         6.71        16.08         0.00   19405474   46514823          0
+
+
+	Sample 2:
+	md0               4.34        10.50        28.33         0.00   30382489   81939620          0
+	sda               3.00         6.76        16.11         0.00   19551728   46596597          0
+	sdb               3.14         6.74        16.07         0.00   19505737   46475509          0
+	sdc               3.57         6.71        16.08         0.00   19405482   46515057          0
+
+	md0               4.34        10.50        28.33         0.00   30382489   81939624          0
+	sda               3.00         6.76        16.11         0.00   19551728   46596602          0
+	sdb               3.14         6.74        16.07         0.00   19505737   46475514          0
+	sdc               3.57         6.71        16.08         0.00   19405482   46515058          0
+
+
+	atheme (10K):
+	Sample 1:
+	md0               4.34        10.51        28.34         0.00   30382489   81939216          0
+	sda               3.00         6.76        16.11         0.00   19551724   46596231          0
+	sdb               3.14         6.75        16.07         0.00   19505697   46475323          0
+	sdc               3.57         6.71        16.09         0.00   19405474   46514747          0
+
+	md0               4.34        10.51        28.34         0.00   30382489   81939224          0
+	sda               3.00         6.76        16.11         0.00   19551724   46596240          0
+	sdb               3.14         6.75        16.07         0.00   19505697   46475324          0
+	sdc               3.57         6.71        16.09         0.00   19405474   46514756          0
+\end{verbatim}
+So not only did the data which I gathered begin nullifying my hypothesis, I also started to gather data which didn't fit any of the patterns which I had previously defined.  Utterly confounding.  I also had some rare data from \texttt{fail2ban}, which was mildly interesting.  Overall, though, it appeared that \texttt{irssi} was capable of generating both types of I/O pattern.  While not conclusive, I thus hypothesized that the different I/O patterns likely had more to do with variance in disk write location and polling timing rather than the program generating the I/O, but had no way to test this hypothesis.  At this point I also got rather bored of this data-gathering method (it took quite a few tries to get \texttt{atheme} data) which did not appear to be bearing any fruit, so I decided to try looking at the scheduler code instead.
+
+\subsection{Scheduler code}
+Reading the source code is one of those things which I'm both grateful that I'm able to do and wary of doing heedlessly; I find that trying to understand someone else's code is a special skill that takes a fair bit of grit.  Thankfully the scheduler's code is rather well-contained within the file in the Linux kernel named \texttt{block/mq-deadline.c}.  First thing which I noticed was the definition of the default write expiration time:
+\begin{verbatim}
+	static const int read_expire = HZ / 2;  /* max time before a read is submitted. */
+	static const int write_expire = 5 * HZ; /* ditto for writes, these limits are SOFT! */
+\end{verbatim}
+Following the use of this constant showed that it was assigned as part of the queue initialization functional:
+\begin{verbatim}
+	static int dd_init_queue(struct request_queue *q, struct elevator_type *e)
+		...
+	        dd->fifo_expire[READ] = read_expire;
+	        dd->fifo_expire[WRITE] = write_expire;
+		...
+\end{verbatim}
+Tracking the assigned member then showed that it was being used to set the \texttt{fifo_time} member of each request that was added to the queue:
+\begin{verbatim}
+	static void dd_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
+				      bool at_head)
+		...
+			/*
+			 * set expire time and add to fifo list
+			 */
+			rq->fifo_time = jiffies + dd->fifo_expire[data_dir];
+			list_add_tail(&rq->queuelist, &dd->fifo_list[data_dir]);
+		...
+\end{verbatim}
+How was the \texttt{fifo_time} member used, though?  I saw two usages: the first was to be set to an adjacent quest's \texttt{fifo_time} during a merge:
+\begin{verbatim}
+	static void dd_merged_requests(struct request_queue *q, struct request *req,
+				       struct request *next)
+		...
+		/*
+		 * if next expires before rq, assign its expire time to rq
+		 * and move into next position (next will be deleted) in fifo
+		 */
+		if (!list_empty(&req->queuelist) && !list_empty(&next->queuelist)) {
+			if (time_before((unsigned long)next->fifo_time,
+					(unsigned long)req->fifo_time)) {
+				list_move(&req->queuelist, &next->queuelist);
+				req->fifo_time = next->fifo_time;
+			}
+		}
+		...
+\end{verbatim}
+The second use was to check whether or not the queue had any expired requests:
+\begin{verbatim}
+	/*
+	 * deadline_check_fifo returns 0 if there are no expired requests on the fifo,
+	 * 1 otherwise. Requires !list_empty(&dd->fifo_list[data_dir])
+	 */
+	static inline int deadline_check_fifo(struct deadline_data *dd, int ddir)
+	{
+		struct request *rq = rq_entry_fifo(dd->fifo_list[ddir].next);
+
+		/*
+		 * rq is expired!
+		 */
+		if (time_after_eq(jiffies, (unsigned long)rq->fifo_time))
+			return 1;
+
+		return 0;
+	}
+\end{verbatim}
+While I couldn't easily figure out whether or not write requests were batched together, what this did suggest to me was that each request had its own separate expiration time unless the request was being merged with an adjacent request, in which case it inherited the original requests' \texttt{fifo_time}.  This would reflect what I was seeing, which is that requests were being intermittently dispatched but at a delay due to the high \texttt{write_expire} time.  I also posited that I might be able to hackishly batch all write requests together by giving them the same \texttt{fifo_time} when they were inserted to the queue in \texttt{dd_insert_request}.  Before trying to modify the code, though, I wanted to see if I could get some data on the queue's contents via \texttt{debugfs} as the following code which I read suggested that might be possible:
+\begin{verbatim}
+	#define DEADLINE_QUEUE_DDIR_ATTRS(name)                                         \
+		{#name "_fifo_list", 0400, .seq_ops = &deadline_##name##_fifo_seq_ops}, \
+		{#name "_next_rq", 0400, deadline_##name##_next_rq_show}
+	static const struct blk_mq_debugfs_attr deadline_queue_debugfs_attrs[] = {
+		DEADLINE_QUEUE_DDIR_ATTRS(read),
+		DEADLINE_QUEUE_DDIR_ATTRS(write),
+		{"batching", 0400, deadline_batching_show},
+		{"starved", 0400, deadline_starved_show},
+		{"dispatch", 0400, .seq_ops = &deadline_dispatch_seq_ops},
+		{},
+	};
+	#undef DEADLINE_QUEUE_DDIR_ATTRS
+\end{verbatim}
+Well, I tried that on a separate system (the running server wasn't readily configured and I didn't feel like modifying it) which was also RAID-5 by generating periodic writes and monitoring the files exported under \texttt{/sys/kernel/debug/block/sda/sched/*}.  I only (briefly) saw stuff when generating heavy I/O due to running some other task; the periodic writes did not generate any noise in the above files at all.
+
+This left one obvious way forward as mentioned earlier: try modifying the scheduler to set the write expiration time of a block I/O request to be the same as that of the rest of the queue.  While this would certainly be an interesting task, modifying the scheduler myself would mean that I run the risk of making a terrible mistake and corrupting my filesystem as a result.  A workaround might have been to use a VM which I've backed-up in the event of an issue.
+
+Fortunately for me, though, my circumstances changed and I got a separate room to put the noisy server in.  That's much easier than trying to hack the scheduler for an uncommon use case.
+
+
 % Implementing Admin, Friend, Referred PKI v0.2.0
 \section{2020-09-13 Implementing Admin, Friend, Referred PKI v0.2.0}
 I currently run a secure IRC server that uses a custom Public Key Infrastructure (PKI) in order to authenticate both the server and its clients.  A feature of the infrastructure is that certain users are able to invite other users by signing certificates for them.  However, I became aware of some potential flaws in how I'd set-up the PKI that led me to develop a newer PKI that would fix these flaws.  I have dubbed the newer PKI ``Admin, Friend, Referred'' in order to reflect the ability of friends to refer users to the server.  This blog will detail how I went from the old version of the PKI to the new version, and includes planning, tooling development, and actual deployment.
@@ -288,7 +719,7 @@ There's still a bunch of work that I'd like to do on AFR in order to get it into
 
 % Replacing an Encrypted Hard Drive on a RAID-5 Array
 \section{2020-04-12 Replacing an Encrypted Hard Drive on a RAID-5 Array}
-This blog entry is about my attempt to replace a failing drive on my home server's amateur-encrypted RAID-5 arrays.  While replacing a failing drive isn't particularly difficult, it must be done with care, and my situation was complicated by the \htmladdnormallink{encryption scripts}{https://github.com/clinew/gscripts} I had set-up around the array.  Yet, even this was not the end of my troubles, as an unexpected problem arose in the middle of my work.
+This\label{2020-04-12-replacing-hard-drive} blog entry is about my attempt to replace a failing drive on my home server's amateur-encrypted RAID-5 arrays.  While replacing a failing drive isn't particularly difficult, it must be done with care, and my situation was complicated by the \htmladdnormallink{encryption scripts}{https://github.com/clinew/gscripts} I had set-up around the array.  Yet, even this was not the end of my troubles, as an unexpected problem arose in the middle of my work.
 
 \subsection{Troubleshooting with S.M.A.R.T.}
 For the past couple of months, message similar to the following had been appearing in my log about once every other week:
