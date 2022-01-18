@@ -6,6 +6,9 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2022-01-17}
+I decided to upgrade my old \htmladdnormallink{Think Penguin router}{https://www.thinkpenguin.com/gnu-linux/free-software-wireless-n-broadband-router-gnu-linux-tpe-nwifirouter2} with the latest \htmladdnormallink{LibreCMC}{https://librecmc.org/index.html} version.  The image I needed wasn't available; so I braced myself for a difficult cross-compilation journey.  Thankfully, it turned out to be a smooth process of: downloading \htmladdnormallink{the source}{https://gogs.librecmc.org/libreCMC/libreCMC/archive/v1.5.7-20211001.tar.gz}, running \texttt{make menuconfig}, setting \texttt{Subtarget} to \texttt{Devices with small flash}, setting \texttt{Target Profile} to \texttt{TP-Link TL-WR841N/ND v8}, then running \texttt{make V=s}.  After a few hours and 7.5GB of disk space I had an upgrade image at \texttt{bin/targets/ath79/tiny/librecmc-ath79-tiny-tplink_tl-wr841-v8-squashfs-sysupgrade.bin} which worked as expected (the upgrading command is posted in a previous blurb).  My compliments to the author!
+
 \subsection{2021-07-04}
 Finally figured out my mic issue on \htmladdnormallink{FSF Jitsi Meet}{http://jitsi.member.fsf.org/}.  Apparently there's a difference between audio input options ``Monitor of Built-in Audio Analog Stereo'' and ``Built-in Audio Analog Stereo'', but once a microphone has been allowed there's no way to even \emph{view} or modify the selection without manually \emph{revoking} the permission, refreshing the page, and selecting a different option to allow.  This is a good example of the distinction between \emph{hiding} complexity rather than \emph{managing} complexity.
 
