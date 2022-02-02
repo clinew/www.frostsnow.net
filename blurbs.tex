@@ -6,6 +6,9 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2022-02-01}
+I found a fix for slow UDP scans via \texttt{nmap} on systems which I have root on: relax the Linux kernel's ICMP ratelimiting.  Based on the info in \htmladdnormallink{ip-sysctl.txt}{https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt}, remove the ratelimit for ICMP ``Destination Unreachable'' messages by unmasking significant bit 3 in \texttt{/proc/sys/net/ipv4/icmp_ratemask} (default: \texttt{6168}) and also increase the overall message rate in \texttt{/proc/sys/net/ipv4/icmp_msgs_per_sec} from \texttt{1000} to \texttt{1000000}.  Restore old settings when finished scanning.  Reduced scan time from 2 days to a matter of minutes.
+
 \subsection{2022-01-23}
 I had some more fun upgrading from PiHole v5.2.1 to v5.8.1 (IIRC; I forgot to write the version numbers down).  First up was \texttt{FTL failed to start due to cannot open or create lease file /var/lib/misc/dnsmasq.leases: Permission denied} which was fixed by a change of ownership: \texttt{chown pihole:pihole /var/lib/misc}.  Next was a more perplexing \texttt{Warning in dnsmasq core: no address range available for DHCP request via lo}; I ended up fixing this via the PiHole Web interface by navigating to \texttt{Settings -> DNS} and then setting \texttt{Bind only to interface eth0}.  Not exactly sure what PiHole was trying to do there, but it seems to be functional now.
 
