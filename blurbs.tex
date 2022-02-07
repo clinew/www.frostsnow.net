@@ -6,6 +6,9 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2022-02-06}
+Had some trouble validating the signature on the newest \htmladdnormallink{TAILS}{https://tails.boum.org} image.  Apparently the new image is signed using a new subkey with fingerprint \texttt{753F901377A309F2731FA33F7BFBD2B902EE13D0}, but this subkey isn't visible on \texttt{hkp://pgp.surf.nl} and I had to manually retrieve it from a different keyserver with \texttt{gpg \verb|--|keyserver hkp://keyserver.ubuntu.com \verb|--|search-keys A490D0F4D311A4153E2BB7CADBB802B258ACD84F}.  Weird.
+
 \subsection{2022-02-01}
 I found a fix for slow UDP scans via \texttt{nmap} on systems which I have root on: relax the Linux kernel's ICMP ratelimiting.  Based on the info in \htmladdnormallink{ip-sysctl.txt}{https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt}, remove the ratelimit for ICMP ``Destination Unreachable'' messages by unmasking significant bit 3 in \texttt{/proc/sys/net/ipv4/icmp_ratemask} (default: \texttt{6168}) and also increase the overall message rate in \texttt{/proc/sys/net/ipv4/icmp_msgs_per_sec} from \texttt{1000} to \texttt{1000000}.  Restore old settings when finished scanning.  Reduced scan time from 2 days to a matter of minutes.
 
