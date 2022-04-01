@@ -6,6 +6,17 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2022-03-31}
+Got this completely baffling error when running \texttt{repoman commit}:
+\begin{verbatim}
+<tmp/tmpva6xwekm.repoman.msg/COMMIT_EDITMSG" 4L, 150B written
+* 0 files being committed...
+error: gpg failed to sign the data
+fatal: failed to write commit object
+!!! Exiting on git (shell) error code: 128
+\end{verbatim}
+Yet \texttt{gpg -k} didn't reveal anything; it wasn't until I ran \texttt{touch ugh; gpg -v --clear-sign ugh} that I got \texttt{gpg: Note: signature key 52922D5D15C76E7A expired Mon Feb 28 22:45:16 2022 PST}.  Apparently a subkey expiration.  Modifying the expiration time of the new subkey was a simple matter of: navigating to the master key location, \texttt{export GNUPGHOME=.}, \texttt{gpg --with-keygrip --list-key <FINGERPRINT>} in order to find out which file in \texttt{private-keys-v1.d} \emph{actually} corresponded to the key fingerprint, \texttt{gpg --edit-key <FINGERPRINT>}, then, in the interactive prompt, \texttt{>key #}, \texttt{>expire}, \texttt{1y}, \texttt{>save} to close the interactive prompt, then \texttt{gpg --export <FINGERPRINT> > key.gpg} to export the key, copying the updated subkey from the offline location to the online location, and finally \texttt{gpg --import key.gpg}.  Simple.  Yeah.
+
 \subsection{2022-02-06}
 Had some trouble validating the signature on the newest \htmladdnormallink{TAILS}{https://tails.boum.org} image.  Apparently the new image is signed using a new subkey with fingerprint \texttt{753F901377A309F2731FA33F7BFBD2B902EE13D0}, but this subkey isn't visible on \texttt{hkp://pgp.surf.nl} and I had to manually retrieve it from a different keyserver with \texttt{gpg \verb|--|keyserver hkp://keyserver.ubuntu.com \verb|--|search-keys A490D0F4D311A4153E2BB7CADBB802B258ACD84F}.  Weird.
 
