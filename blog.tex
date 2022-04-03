@@ -18,6 +18,153 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+% Removing Extra IP Protocols
+\section{2022-04-03 Removing Extra IP Protocols}
+Back when I was a fledgeling programmer, I took a trip to a nearby book store hoping to learn some l33t sk711z.  There I found a copy of ``\htmladdnormallink{Nmap Network Scanning}{https://nmap.org/book/}'' by Gordon ``Fyodor'' Lyon and it sounded pretty l33t, so I bought a copy and then began to read it.  One piece of knowledge I got from reading the book is that besides the usual TCP and UDP scans, \texttt{nmap} also has an IP Protocol scan, which scans for, well, IP protocols, rather than TCP or UDP ports.  The scan was quick and painless for me to run, but how to interpret the results and then remove the unneeded protocols was not apparent to me.  Over a decade after reading the book, I decided to take a serious look at analyzing and removing unused IP protocols from my network.
+
+First step was to amalgamate all of the not-closed protocols into a list, since the methods for eliminating a protocol would be the same across the various systems (though not so much as I had hoped, as will be explained below):
+
+\begin{verbatim}
+1        open          icmp
+2        open|filtered igmp
+4        open|filtered ipv4
+6        open          tcp
+17       open          udp
+41       open|filtered ipv6
+47       open|filtered gre
+69       open|filtered sat-mon
+90       open|filtered sprite-rpc
+102      open|filtered pnni
+103      open|filtered pim
+136      open|filtered udplite
+255      open|filtered unknown
+\end{verbatim}
+
+The necessary protocols which I was familiar with are \htmladdnormallink{ICMP}{https://en.wikipedia.org/wiki/Internet_Control_Message_Protocol} (ping, \&c.), \htmladdnormallink{TCP}{https://en.wikipedia.org/wiki/Transmission_Control_Protocol}, and \htmladdnormallink{UDP}{https://en.wikipedia.org/wiki/User_Datagram_Protocol}.  The rest would require investigation.
+
+\subsection{\texttt{igmp} and \texttt{pim}}
+First on the list was \htmladdnormallink{\texttt{igmp}}{https://en.wikipedia.org/wiki/Igmp}.  Judging from the Wikipedia page, this protocol is useful for streaming large amounts of data (such as video) to numerous clients and is part of \htmladdnormallink{IP multicast}{https://en.wikipedia.org/wiki/IP_multicast}.  Well, I was pretty sure I didn't do anything like that, so I decided to axe it and see if anything broke!  Some searching through the Linux kernel config turned up a \texttt{CONFIG_IP_MULTICAST} option; I disabled this, recompilled and installed the new kernel, and then both \texttt{IGMP} \emph{and} \htmladdnormallink{\texttt{PIM}}{https://en.wikipedia.org/wiki/Protocol_Independent_Multicast} were now closed!  Things were off to an excellent start.
+
+\subsection{\texttt{sat-mon}, \texttt{sprite-rpc}, and \texttt{pnni}}
+When I attempted to re-verify that the \texttt{sat-mon} protocol was still open/filtered before trying to close it, I found that the filter was now reported as closed!  Though I know that \texttt{nmap} has built-in ratelimiting, perhaps that wasn't enough to avoid all false positives?  I applied the same workaround which I wrote about in a previous blurb, that is, setting \texttt{/proc/sys/net/ipv4/icmp_ratemask} to \texttt{6160} and \texttt{/proc/sys/net/ipv4/icmp_msgs_per_sec} to \texttt{1000000}.  A few, now very fast, rescans showed that not only the \texttt{sat-mon}, but also the \texttt{sprite-rpc} and \texttt{pnni} protocols were now reported as closed!
+
+\subsection{\texttt{ipv4} and \texttt{ipv6}}
+Turns out I had forgotten to disable IPv6 on one of my machines (I can already sense IPv6 advocates frothing at the mouth)!  Unsetting \texttt{CONFIG_IPV6}, re-compiling, and re-installing the kernel as well as globally disabling the \texttt{ipv6} USE flag and re-building \texttt{@world} (it's a \htmladdnormallink{Gentoo}{https://www.gentoo.org/} thing) made both protocols report as closed.  What's odd about this is that all my machines use IPv4 and the scans themselves took place over IPv4, but the protocol was marked as closed on them; even on my router, which supports both IPv4 an IPv6, both protocols were reported as closed.  Well, whatever, it's good enough as-is.
+
+\subsection{\texttt{udplite}}
+This one was tricky.  Apparently the purpose of \htmladdnormallink{UDP-Lite}{https://www.kernel.org/doc/html/latest/networking/udplite.html} is to allow programs with built-in error-recovery to handle broken packets rather than discard them because the regular UDP checksum failed.  Makes sense, but do any programs that I run actually use this?  Should I be scanning all 65536 UDP-Lite ports as well, or can I just axe the protocol?  Well, the fun way to find out is to axe it and see if anything breaks.  Unfortunately, this was not so straightforward.  I found nothing akin to a config option to disable the protocol from searching the kernel's \texttt{menuconfig}, nor did I find anything obvious when digging through the kernel source file \texttt{net/ipv4/udplite.c}.  Patching and then remembering to patch each kernel as part of the upgrade process was not something that I was particularly keen on doing, either; instead, I decided to try using \texttt{iptables}.
+
+First step was to enable both \texttt{CONFIG_IP_NF_IPTABLES} and \texttt{CONFIG_IP_NF_TARGET_REJECT} in the kernel (then recompile, reinstall, \&c.).  Next step was to disable the protocol with \texttt{iptables -A INPUT -p udplite -j REJECT}, but a subsequent rescan now showed the protocol as \texttt{open}!  Reading the \texttt{iptables-extensions(8)} manpage revealed that the default error message sent by the IPv4 \texttt{REJECT} target is \texttt{icmp-port-unreachable}; this would explain why the \emph{protocol} itself was reported as open: the rejection is only sent when trying to connect to a specific \emph{port} within the protocol.  Further reading showed that issue could be remedied by adding the \texttt{\verb|--|\texttt{reject-with icmp-proto-unreachable}} option to the command, giving \texttt{iptables -A INPUT -p udplite -j REJECT \verb|--|reject-with icmp-proto-unreachable}.  Running this gave the desired result of \texttt{closed}, but, since this was not a hard-disable at the kernel level, a few additional steps had to be taken to persist this change.  On Gentoo, the following series of commands did the trick: \texttt{rc-service iptables save}, \texttt{rc-service iptables start}, and \texttt{rc-update add iptables default}; simple enough!  For my LibreCMC router, I added the aforementioned \texttt{iptables} command to the file \texttt{/etc/firewall.user}.  A reboot and rescan on the respective machines showed that these steps gave the desired result.
+
+There remains the fundamental question of whether or not the additional complexity involved in disabling the protocol outweighs the benefits from disabling the protocol; perhaps it would have been better to come up with a method for patching the kernel and thus removing the additional netfilter complexity from the non-router systems.  Perhaps, but netfilter is what I used this time around.
+
+\subsection{\texttt{igmp} \& LibreCMC}
+The reality of computing is that not all computers are created equal.  What this meant for me in this case was that, while I certainly knew how to configure and update kernels on my regular Gentoo installs, I was not certain how to do so on LibreCMC.  I'd previously downloaded and compiled LibreCMC, but when I looked through \texttt{make menuconfig} I did not find any relevant options; turns out I needed to run \texttt{make kernel_menuconfig} instead.  I did the first step of disabling \texttt{CONFIG_IP_MULTICAST}, then, for good measure, I decided to disable \texttt{CONFIG_IPV6} as well.  After rebuilding and flashing the image the "SYS" light blinked as normal, then began blinking rapidly\ldots~forever.  Okay, well, I did the usual method of holding down the reset button for 30 seconds in order to trigger a factory reset.  Nothing happened.  Fuck.  It was about 7:30 p.m. on a Sunday, and I wanted the router working before starting the workweek given that I was working from home.
+
+My first inclination was to try opening the router in order to see if I could flash it.  While the top of the router looked easily removable, there was some kind of unexpected resistance near the back of the router which I hadn't been able to figure out on previous attempts.  Turns out the trick was to remove the\ldots~friction dohickies on the bottom the router, exposing screws which kept the top in place:
+
+\begin{figure}
+\includegraphics{files/blog/2022_04_03_removing_extra_ip_protocols/2022_04_03_router1.jpg}
+\caption{My router with the friction dohickies removed and placed on the side.  There are screws showing which are not really discernable due to my awful camera.}
+\end{figure}
+
+With the board exposed, I tried searching for an obvious serial connection, though nothing definite stuck out at me.  Some searching turned up \htmladdnormallink{this page}{https://openwrt.org/toh/tp-link/tl-wr841nd#serial_console} and, more specifically, \htmladdnormallink{this board configuration}{https://openwrt.org/_detail/media/tplink/tl-wr841/tl-wr841nd-v8.4_serial_02.jpg?id=toh\%3Atp-link\%3Atl-wr841nd}, although none of them quite matched my board:
+
+\begin{figure}
+\includegraphics{files/blog/2022_04_03_removing_extra_ip_protocols/2022_04_03_router2.jpg}
+\caption{Judging from the similar boards, I'm guessing the circled area is the serial connection.}
+\end{figure}
+
+At this point a multitude of problems struck me.  First, the board required a certain type of serial connector.  I thought I ordered one when I got the board, but I couldn't find it, so perhaps I was mis-remembering.  Next, I had no knowledge of how to determine the exact pinout besides extrapolating from the other images of pinouts, a risky bet, and I quite probably did not even have the required equipment.  Last, I'd have to solder the pins in order to connect them, which would add extra difficulty to the task.  Since there was still some kind of life in the board, I decided to see if there was some other way to fix it.
+
+There were two known states which I was able to put the board in.  The first, as mentioned before, was to simply power on the board, which would cause the "PWR" light to turn on and the "SYS" light to flash, then begin flashing "rapidly" ad infinitum.  The second state was obtained by holding down the "WPS/Reset" button during power on; this would cause the "PWR" light to turn on and then all lights to flash about once a second for around 15 seconds before leaving just the "PWR" light on.  Yet I had no idea what either of these statuses meant, nor how to take advantage of them.  A \htmladdnormallink{number}{https://openwrt.org/toh/tp-link/tl-wr841nd#tftp_recovery_via_bootloader_for_v8_v9_v10_v11_v12_v13} \htmladdnormallink{of}{https://community.tp-link.com/en/home/forum/topic/81462?page=1} \htmladdnormallink{pages}{https://forum.archive.openwrt.org/viewtopic.php?id=33906} mentioned the router could pull images from TFTP while in some kind of \htmladdnormallink{failsafe}{https://openwrt.org/docs/guide-user/troubleshooting/failsafe_and_factory_reset#failsafe_mode} mode.  In order to see if this method was viable, I followed the advice of trying to listen for a TFTP request by setting up a static IP address on another machine and then monitoring network traffic with \texttt{tcpdump -Ani enp5s4}; what I found was that the second state (holding down the "WPS/Reset" button during power on) would generate the following traffic when the lights would stop blinking:
+
+\begin{verbatim}
+--------
+22:52:54.119282 ARP, Request who-has 192.168.1.2 tell 192.168.1.1, length 46
+........df...*................................
+22:52:54.119327 ARP, Reply 192.168.1.2 is-at 00:14:d1:24:88:f0, length 28
+...........$......df...*....
+22:52:54.119368 IP 192.168.1.1.6666 > 192.168.1.2.6666: UDP, length 29
+E..9..@...._.........
+.
+.%..U-Boot 1.1.4  (Jul 28 2014)
+
+
+22:52:54.119399 IP 192.168.1.2 > 192.168.1.1: ICMP 192.168.1.2 udp port 6666 unreachable, length 65
+E..UJ...@...................E..9..@...._.........
+.
+.%..U-Boot 1.1.4  (Jul 28 2014)
+
+
+22:52:54.119453 IP 192.168.1.1.6666 > 192.168.1.2.6666: UDP, length 7
+E..#..@....t.........
+.
+....uboot> ...........
+22:52:54.119465 IP 192.168.1.2 > 192.168.1.1: ICMP 192.168.1.2 udp port 6666 unreachable, length 43
+E..?J...@..$..........O.....E..#..@....t.........
+.
+....uboot>
+22:52:59.149647 ARP, Request who-has 192.168.1.1 tell 192.168.1.2, length 28
+...........$................
+22:52:59.149748 ARP, Reply 192.168.1.1 is-at 64:66:b3:9d:17:2a, length 46
+........df...*.......$........................
+--------
+\end{verbatim}
+
+This looks to be some kind of U-boot CLI prompt, but to port 6666?  Over UDP?  Huh?!  Other pages mentioned emergency \htmladdnormallink{recovery over telnet}{https://openwrt.org/toh/tp-link/tl-wr841nd#v7} while others mentioned \htmladdnormallink{recovery over HTTP}{https://openwrt.org/toh/rosewill/rnx-n300rt#boot_in_failsafe_mode}, but nothing about what I was seeing.  I never did figure out the mysterious packets, but the \htmladdnormallink{last section from the previous link}{https://openwrt.org/toh/rosewill/rnx-n300rt#recover_from_flash_of_bad_image_on_a_thinkpenguin-supplied_router} as well as some inspiration from previously reading OpenWRT's failsafe mode ended up saving the day.  The trick was to hold the "WPS/Reset" button, power on the modem, and then rapidly mash the "WPS/Reset" button; all of the non-power lights when then blink \emph{very} rapidly for about 5 times and then just the "PWR" button would stay lit (this state would not be triggered by simply holding the "WPS/Reset" button).  After guessing this trick, to my great joy I was able to navigate to a webpage at 192.168.1.1 and upload a known-good \texttt{sysupdate} image:
+
+\begin{figure}
+\includegraphics{files/blog/2022_04_03_removing_extra_ip_protocols/2022_04_03_update.png}
+\caption{There was much rejoicing.  The GitHub links leads \htmladdnormallink{here}{https://github.com/pepe2k/u-boot_mod}.}
+\end{figure}
+
+After the uploaded completed, the router was rebooted and began working as expected.  A few weeks later when I had recovered from the ordeal and felt brave again, I re-enabled IPv6 while leaving multicast disabled and compiled a new image, which, when flashed, worked as expected.  My plan for killing two birds with one stone had failed, but at least I was able to kill one bird with one stone by chasing it halfway around the world.  Or something.  The analogy kind of breaks down there.
+
+Arguably, none of this is related to a blog ostensibly about disabling IP protocols, but it was the harsh reality of what it actually took to disable the protocol.
+
+\subsection{\texttt{gre} and \texttt{unknown}}
+Once again details of reality must spill over into what would normally be a machine-agnostic removal of protocols.  The specific machine reporting these two protocols was my \htmladdnormallink{Novena lapboard}{https://www.crowdsupply.com/sutajio-kosagi/novena}.  The named, and therefore probably lower-hanging fruit, protocol, \texttt{gre}, is an interesting \htmladdnormallink{tunneling protocol}{https://en.wikipedia.org/wiki/Generic_Routing_Encapsulation} which I didn't have any obvious, immediate use for.  Searching through the kernel source quickly turned up a configuration candidate \texttt{CONFIG_NET_IPGRE} which I disabled, but, unfortunately, I was unable to re-compile the kernel:
+
+\begin{verbatim}
+/usr/lib/gcc/armv7a-unknown-linux-gnueabihf/11.2.0/../../../../armv7a-unknown-linux-gnueabihf/bin/ld: scripts/dtc/dtc-parser.tab.o:(.bss+0x8): multiple definition of `yylloc'; scripts/dtc/dtc-lexer.lex.o:(.bss+0x1c): first defined here
+\end{verbatim}
+
+This wasn't the first time a previously-working kernel began failing to compile\label{2019-05-07-novena-kernel-woes}, so without much effort I found commit \texttt{d047cd8a2760f58d17b8ade21d2f15b818575abc} which seemed to address the issue.  Yet when I modified the \htmladdnormallink{Novena sources ebuild}{https://github.com/sakaki-/novena-overlay/blob/master/sys-kernel/novena-sources/novena-sources-4.7.2-r3.ebuild} in order to apply the patch, I wound up with the following error:
+
+\begin{verbatim}
+	Applying 1004-scripts-dtc-Remove-redundant-YYLOC-global-declaratio.patch (-p1) ...                                                                  [ ok ]
+	Failed to dry-run patch 1005-scripts-dtc-Update-to-upstream-version-v1.6.0-2-g87a.patch
+	Please attach /var/tmp/portage/sys-kernel/novena-sources-4.7.2-r5/temp/1005-scripts-dtc-Update-to-upstream-version-v1.6.0-2-g87a.err to any bug you may post.
+	ERROR: sys-kernel/novena-sources-4.7.2-r5::novena failed (unpack phase):
+	  Unable to dry-run patch on any patch depth lower than 5.
+
+	Call stack:
+	    ebuild.sh, line  127:  Called src_unpack
+	  environment, line 1812:  Called kernel-2_src_unpack
+	  environment, line 1408:  Called unipatch '  /var/tmp/portage/sys-kernel/novena-sources-4.7.2-r5/distdir/genpatches-4.7-5.base.tar.xz /var/tmp/portage/sys-kernel/novena-sources-4.7.2-r5/distdir/genpatches-4.7-5.extras.tar.xz /var/tmp/portage/sys-kernel/novena-sources-4.7.2-r5/distdir/novena-kernel-patches-4.7.2-r3.tar.gz'
+	  environment, line 2729:  Called die
+	The specific snippet of code:
+	                  die "Unable to dry-run patch on any patch depth lower than 5.";
+\end{verbatim}
+
+\ldots \emph{patch depth}?  Dry-run?  Huh?!  I took a look at the kernel eclass and found \htmladdnormallink{the following logic}{https://github.com/gentoo/gentoo/blob/3260e911b50ebbef25330f646bb6761a69cfb497/eclass/kernel-2.eclass#L1284}:
+
+\begin{verbatim}
+	if [[ ${PATCH_DEPTH} -eq 5 ]]; then
+		eerror "Failed to dry-run patch ${i/*\//}"
+		eerror "Please attach ${STDERR_T} to any bug you may post."
+		eshopts_pop
+		die "Unable to dry-run patch on any patch depth lower than 5."
+	fi
+\end{verbatim}
+
+I wasn't really sure what to make of this.  What is patch depth?  Why should I care about a \emph{dry} run?  Just apply the damn patch!  Given my previous trial with my router I decided that I'd hit my tolerance for mental pain on what was supposed to not be a major undertaking and declare my Novena deprecated, especially as its form factor just isn't useful for a laptop.  I've little doubt that the \texttt{CONFIG_NET_IPGRE} option choice was correct, as for the \texttt{unknown} protocol, who knows!  I didn't even try to investigate the protocol as it seemed possible I'd only find a hypothesis I'd be unable to test without a bunch of additional work.  Perhaps one day I'll feel ambitious enough to fix this and will add a subsection on the solution.
+
+\subsection{Conclusion}
+After a long and grueling adventure I thus managed to get a number of unused protocols disabled, thus removing some attack surface for a questionable gain in security.  Though the practical gains are questionable, I find learning about such aspects of my system to be rather satisfying; plus they often crop up again in unexpected places (perhaps I'll need to make use of GRE sometime in the future!).  It's just too bad about the Novena\ldots
+
+
 % Quieting Spinning Disk Drives
 \section{2022-01-03 Quieting Spinning Disk Drives}
 A while ago I wrote about the \htmlref{ordeal}{2020-04-12-replacing-hard-drive} I went through when replacing a failing hard drive.  When the ordeal was over, I went to lie down and rest with a job well done, untill\ldots Cla-tunk!  Click!  Bzzzt-click!  Apparently this new drive was much louder than my old one; at least, the sound was intensified enough in that drowsy state in-between sleeping and waking states to prevent me from actually falling asleep, not unlike the \htmladdnormallink{ticking clocks in Pinnochio}{https://invidious.snopyta.org/watch?v=is4s0T_jbrs}.  Since I was renting a single bedroom, moving the server into another room was out of the question and I instead used other coping mechanisms such as earplugs and placing my pillow over my head.  This workaround was effective, and, since solving the clicking harddrive problem did not appear straightforward, I constantly delayed finding a solution to this problem in favor of other work.  Eventually, I came up with a partial solution, but my circumstances changed such that finding a full solution was no longer a concern.
