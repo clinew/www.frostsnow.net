@@ -18,6 +18,273 @@ This page contains links to writings about topics such as technology, video game
 
 \tableofchildlinks*
 
+\section{2022-04-17 Generating OpenStreetMap Tiles for Offline Slippy Maps}
+Have you ever heard stories of starving animals which are rescued but retain food guarding behavior for life?  That's how I feel about my data!  I blame this on having grown up in the bad old days without Internet.  The feeling is compounded by the fact that software service providers tend to invariably be Big Brother, surveillance capitalist pigs, so using offline data prevents those creeps from stalking me.
+
+In this case my desire for offline data centered on map \emph{tiles}; navigation and fancy search features I'd worry about later.  The obvious choice for tiles was the \htmladdnormallink{OpenStreetMap}{https://www.openstreetmap.org/} project, though getting the tiles the way I wanted them ended up being a fair amount of effort.  The first step was to determine a desktop program to use (and there are \htmladdnormallink{many}{https://wiki.openstreetmap.org/wiki/Software/Desktop} to choose from) and play around with it.  The next step was to get the data for Eugene, OR.  Once I had the data I then had to generate the tiles, which was done by setting up a local webserver with the \texttt{renderd} daemon.  With the server set up, I then spent a bit of time figuring out how to pull the tiles so that I wouldn't have to rely on a working webserver (useful for copying the tiles to other machines).  Finally, I got the data for all of Oregon and generated tiles for the entire state.  Though there were some rough spots, there was nothing insurmountable to achieving my goal.
+
+\subsection{Choosing a desktop application}
+While there were tons of desktop applications to choose from, I narrowed the selection down with the following criteria: Free (\htmladdnormallink{as in Freedom}{https://www.gnu.org/philosophy/free-sw.en.html}), GNU/Linux support, and active.  Two noteworthy applications stood out the most: JOSM and QGIS.  \htmladdnormallink{JSOM}{https://wiki.openstreetmap.org/wiki/JOSM} appeared to have the benefit of being used by OSM developers for editing maps, being stable, and feature-rich; however, it also seemed geared towards editing, was complex, and was written in Java.  \htmladdnormallink{QGIS}{https://wiki.openstreetmap.org/wiki/QGIS} looked like it was suited for viewing data in addition to editing (though not for OSM), was written in C++ and Python, and had a stable ebuild ready (JOSM's was unstable).  I decided to try out QGIS since it seemed like the easier option.
+
+I began learning the tool by following the \htmladdnormallink{QGIS tutorial}{https://github.com/hotosm/learnosm/wiki/English-Learning-Guides#qgis}.  After that I followed the instructions on the \htmladdnormallink{OSM QGIS Wiki page}{https://wiki.openstreetmap.org/wiki/QGIS#Raster_maps} to add the OSM-provided tiles:
+
+\begin{figure}
+\includegraphics{files/blog/2022_04_17_generating_openstreetmap_tiles_for_offline_slippy_maps/2022_04_17_qgis.png}
+\caption{QGIS displaying tiles from the OSM tiles server (see if you can spot the hint that this was taken for this blog after I'd already completed the work).}
+\end{figure}
+
+Personally, I think it looks pretty nice and has a surprising amount of detail!  Being reliant on a remote server isn't what I wanted, however, so for the next step I looked into downloading the data for Eugene.
+
+\subsection{Getting the data for Eugene}
+It turned out that there were quite a number of ways to \htmladdnormallink{get data}{https://learnosm.org/en/osm-data/getting-data/} from OSM, each catering to specific use cases.  I was not keen to try downloading \htmladdnormallink{the entire planet}{https://wiki.openstreetmap.org/wiki/Planet.osm}, nor was I able to find any extracts for Eugene.  The \htmladdnormallink{main api}{https://wiki.openstreetmap.org/wiki/Downloading_data#For_editing} was meant to be used for editing, while how to use the \htmladdnormallink{Overpass API}{https://wiki.openstreetmap.org/wiki/Overpass_API} was not at all apparent to me, and \htmladdnormallink{the manual}{https://dev.overpass-api.de/overpass-doc/en/} was a bit larger than what I felt like trying to fit into my head at the time.  Eventually I ended up using the "Export" feature on the \htmladdnormallink{main OSM page}{https://www.openstreetmap.org/} which got me a nice 233MB \texttt{.osm} file.  I was able to import the data in QGIS via \texttt{Layer -> Add Layer -> Add Vector Layer}, which led to the following:
+
+\begin{figure}
+\includegraphics{files/blog/2022_04_17_generating_openstreetmap_tiles_for_offline_slippy_maps/2022_04_17_eugene.png}
+\caption{OSM vector data for Eugene.}
+\end{figure}
+
+Yikes.  It looks like some kind of lovecraftian horror.  It also liked to crash QGIS, especially if I wasn't extremely gentle with my usage.  What I had thus far wasn't anything close to the nice tiles I was getting from OSM; I needed to figure out how to get those tiles!
+
+\subsection{Turning the data into tiles}
+As a quick and hopeful alternative to generating my own tiles I decided to see if I could just fetch the tiles from the OSM map server directly; unfortunately for me, the \htmladdnormallink{policies}{https://operations.osmfoundation.org/policies/tiles/} stated that bulk downloading for high zoom levels was forbidden.  Thus I'd have to take the much more difficult path of rendering my own tiles.  The tool for doing this appeared to be \htmladdnormallink{Mapnik}{https://mapnik.org/}, and it had an unofficial \htmladdnormallink{Gentoo overlay}{https://github.com/redneb/gentoo-mapnik-overlay} which I could use to install it.  How to use this tool directly wasn't obvious to me; I found \htmladdnormallink{this tutorial}{https://github.com/mapnik/mapnik/wiki/GettingStartedInPython} but ran into an error trying to import the module in Python, and it wasn't immediately obvious how I could apply the tutorial towards generating the same kind of tiles used by the OSM server.  Taking this into consideration I decided that the most straightforward method would be to \htmladdnormallink{set up my own tile server}{https://switch2osm.org/serving-tiles/} to see if I could even get tiles consistent with the OSM server.
+
+More precisely, I decided to follow the instructions for a \htmladdnormallink{Debian 11 tile server}{https://switch2osm.org/serving-tiles/manually-building-a-tile-server-debian-11}.  Since I was on Gentoo, the instructions required a number of adaptations (though my notes aren't too good here, I'll document a few problems and their fixes as best I'm able to); I also made reference to \htmladdnormallink{these old Gentoo instructions}{https://wiki.openstreetmap.org/wiki/Deploying_your_own_Slippy_Map_Gentoo#Step_two:_Rendering_toolchain} and \htmladdnormallink{these \texttt{mod_tile} instructions for Ubuntu 20.04}{https://github.com/openstreetmap/mod_tile/blob/master/docs/build/building_on_ubuntu_20_04.md} when necessary.  A few difficulties were encountered when installing the Mapnik Python bindings; first off:
+
+\begin{verbatim}
+# ./setup.py install
+<snip>
+src/mapnik_datasource.cpp:37:10: fatal error: mapnik/geometry/box2d.hpp: No such file or directory
+   37 | #include <mapnik/geometry/box2d.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+compilation terminated.
+error: command '/usr/bin/x86_64-pc-linux-gnu-g++' failed with exit code 1
+
+Missing boost_python boost library, try to add its name with BOOST_PYTHON_LIB environment var.
+\end{verbatim}
+
+This was despite having Boost installed with the \texttt{python} \texttt{USE} flag enabled.  So I searched for the installed Python library via \texttt{equery f boost | grep -i python}, found it at \texttt{/usr/lib64/cmake/boost_python-1.77.0}, and re-ran the command:
+
+\begin{verbatim}
+# BOOST_PYTHON_LIB=/usr/lib64/cmake/boost_python-1.77.0 ./setup.py install
+<snip>
+/usr/lib/gcc/x86_64-pc-linux-gnu/11.2.0/../../../../x86_64-pc-linux-gnu/bin/ld: cannot find -l/usr/lib64/libboost_python39.so
+collect2: error: ld returned 1 exit status
+error: command '/usr/bin/x86_64-pc-linux-gnu-g++' failed with exit code 1
+\end{verbatim}
+
+Which then failed at a different point.  Apparently \texttt{BOOST_PYTHON_LIB} expects the soname of the library and not the full path.  Setting \texttt{BOOST_PYTHON_LIB=boost_python39} fixed the issue.
+
+Next, I had some issues getting the ``external data'' when setting up OSM Carto:
+
+\begin{verbatim}
+$ ./scripts/get-external-data.py
+INFO:root:  Importing into database
+CRITICAL:root:ogr2ogr returned 1 with layer simplified_water_polygons
+CRITICAL:root:Command line was ogr2ogr -f PostgreSQL -lco GEOMETRY_NAME=way -lco SPATIAL_INDEX=FALSE -lco EXTRACT_SCHEMA_FROM_LAYER_NAME=YES -nln loading.simplified_water_polygons PG:dbname=gis data/simplified_water_polygons/simplified-water-polygons-split-3857/simplified_water_polygons.shp
+CRITICAL:root:Output was
+<snip>
+subprocess.CalledProcessError: Command '['ogr2ogr', '-f', 'PostgreSQL', '-lco', 'GEOMETRY_NAME=way', '-lco', 'SPATIAL_INDEX=FALSE', '-lco', 'EXTRACT_SCHEMA_FROM_LAYER_NAME=YES', '-nln', 'loading.simplified_water_polygons', 'PG:dbname=gis', 'data/simplified_water_polygons/simplified-water-polygons-split-3857/simplified_water_polygons.shp']' returned non-zero exit status 1.
+
+During handling of the above exception, another exception occurred:
+<snip>
+RuntimeError: ogr2ogr error when loading table simplified_water_polygons
+\end{verbatim}
+
+Yikes.  The next step here was to try running the command manually in order to get the actual process output:
+
+\begin{verbatim}
+postgres@seneca /home/frostsnow/software/openstreetmap-carto $ ogr2ogr -f PostgreSQL -lco GEOMETRY_NAME=way -lco SPATIAL_INDEX=FALSE -lco EXTRACT_SCHEMA_FROM_LAYER_NAME=YES -nln loading.simplified_water_polygons PG:dbname=gis data/simplified_water_polygons/simplified-water-polygons-split-3857/simplified_water_polygons.shp
+ERROR 1: Unable to find driver `PostgreSQL'.
+\end{verbatim}
+
+Hmm.  I mapped the program \texttt{ogr2ogr} to its package with \texttt{equery b \$(which ogr2ogr)}, got \texttt{sci-libs/gdal} and noticed that the \texttt{postgres} \texttt{USE} flag was not enabled; enabling it and re-compiling fixed the issue.
+
+Third, I had an issue configuring \texttt{mod_tile}:
+
+\begin{verbatim}
+$ ./configure
+checking for /opt/local/apache2/bin/apxs... no
+configure: error: Could not find apxs on the path.
+\end{verbatim}
+
+\ldots because I hadn't installed Apache yet.  D'oh.
+
+That wasn't enough to compile \texttt{mod_tile}, though, as I then ran into the following compilation issue:
+
+\begin{verbatim}
+$ make
+depbase=`echo src/daemon.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DHAVE_CONFIG_H -I. -I./includes  -pthread -I/usr/include/glib-2.0 -I/usr/lib64/glib-2.0/include    -g -O2 -MT src/daemon.o -MD -MP -MF $depbase.Tpo -c -o src/daemon.o src/daemon.c &&\
+mv -f $depbase.Tpo $depbase.Po
+src/daemon.c:46:10: fatal error: iniparser/iniparser.h: No such file or directory
+   46 | #include <iniparser/iniparser.h>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~
+compilation terminated.
+make: *** [Makefile:887: src/daemon.o] Error 1
+\end{verbatim}
+
+Step one was to install \texttt{iniparser}, but I still got the same error.  Turns out that \texttt{iniparser.h} was located in the \texttt{iniparser4} directory, so I had to change \texttt{iniparser/iniparser.h} to \texttt{iniparser4/iniparser.h}.  I got a similar error during linking: \texttt{/usr/lib/gcc/x86_64-pc-linux-gnu/11.2.0/../../../../x86_64-pc-linux-gnu/bin/ld: cannot find -liniparser} which was solved by editing \texttt{Makefile} to use \texttt{-liniparser4}.  Hardly a proper fix, but effective enough to move on.
+
+Then I had trouble starting Apache:
+
+\begin{verbatim}
+# rc-service apache2 restart
+ * apache2 has detected an error in your setup:
+AH00526: Syntax error on line 7 of /etc/apache2/modules.d/11_mod_tile.conf:
+Invalid command 'ModTileTileDir', perhaps misspelled or defined by a module not included in the server configuration
+\end{verbatim}
+
+The solution here was to explicitly load the tile module via opening \texttt{/etc/apache2/httpd.conf} and adding the line \texttt{LoadModule tile_module modules/mod_tile.so}.
+
+Even though I had Apache running at this point, I wasn't able to view any tiles.  I found the source of the problem by opening \texttt{/var/log/apache2/error_log} and finding the following log message:
+
+\begin{verbatim}
+[Sat Jan 29 18:12:49.629646 2022] [tile:warn] [pid 22362] [client 127.0.0.1:38558] socket connect failed for: /run/renderd/renderd.sock with reason: No such file or directory
+[Sat Jan 29 18:12:49.629675 2022] [tile:notice] [pid 22362] [client 127.0.0.1:38558] Failed to connect to renderer
+\end{verbatim}
+
+The easiest workaround (and bad; don't try this at home) was to set \texttt{chmod 0777} on the file; this worked, and I made a note to fix it later.
+
+Eventually I got everything set-up and tried out the sample leaflet.  At first I saw the outlines of all the continents and was worried that somehow external data was being pulled in, but then I remembered that some extra data was pulled in magically by one of OSM's scripts earlier.  As I zoomed into Oregon, I saw it:
+
+\begin{figure}
+\includegraphics{files/blog/2022_04_17_generating_openstreetmap_tiles_for_offline_slippy_maps/2022_04_17_working.png}
+\caption{OSM tiles locally-rendered and served via the sample leaflet.}
+\end{figure}
+
+Hurrah!  For convenience's sake I then wrote a few OpenRC scripts so that I didn't have to manually invoke Apache, PostgreSQL, and \texttt{renderd}; \texttt{/etc/init.d/renderd}:
+
+\begin{verbatim}
+#!/sbin/openrc-run
+# Copyright 2022 Gentoo Authors
+# Distributed under the terms of the GNU General Public License v2
+
+name="renderd daemon"
+description=""
+command=/usr/local/bin/renderd
+command_args="${renderd_args}"
+command_user=postgres:postgres
+
+depend() {
+        need apache2 postgresql-13
+}
+
+start_pre() {
+        checkpath -d --owner root:postgres --mode 0775 /run/renderd
+}
+\end{verbatim}
+
+and \texttt{/etc/conf.d/renderd}:
+
+\begin{verbatim}
+# /etc/conf.d/minetest-server: config file for /etc/init.d/minetest-server
+
+# pidfile
+PIDFILE="/run/renderd/renderd.pid"
+\end{verbatim}
+
+Yes, I used the \texttt{postgres} user for anything involving \texttt{renderd}.  A proper set up would decouple the two, but \texttt{renderd} was the only thing using PostgreSQL so it didn't seem like a big deal and I didn't want to bother creating another user.
+
+As for QGIS, pulling from the local webserver was simple enough: create a new \texttt{XYZ tiles} layer and set it's \texttt{Layer Source} URL to \verb|http://127.0.0.1/hot/{z}/{x}/{y}.png|.  Although (sadly) a little slower than pulling from OSM's server, it worked!
+
+\subsection{Pulling tiles from the webserver}
+Though I now had the tiles being served from a local webserver, my goal was to have tiles without having to run a webserver at all.  Looking at \texttt{renderd}'s offerings, the \texttt{render_list} command seemed like it might be useful for the task.  Before I could invoke the command, I needed the tile co-ordinates.  Mapping x and y values was explained in the \htmladdnormallink{slippy map tilenames}{https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames} Wiki page, except the formula expected degrees and QGIS was displaying something else; I was able to get QGIS to display degrees by going to \texttt{Project -> Properties}, \texttt{General} tab, \texttt{Coordinate and Bearing Display} subsection, then changing the \texttt{Display coordinates using} drop-down from \texttt{Map units (meters)} to \texttt{Decimal Degrees}.  At that point the widget on the bottom reading \texttt{Coordinate} displayed only coordinates for my mouse; clicking the icon next to it changed the widget to display \texttt{Extents} instead.  This gave me co-ordinates -123.2519,43.9809:-122.8547,44.1422 for an extent covering Eugene.  As for the zoom levels, I'm still perplexed as to how QGIS's \texttt{Scale} corresponds to the \htmladdnormallink{zoom levels}{https://wiki.openstreetmap.org/wiki/Zoom_levels} Wiki page's "Scale", given that QGIS displayed 1:128807296 for the world while the Wiki page claimed 1:500000000.  My easy workaround for finding the required minimum required zoom level was to clean the tiles cache, navigate to the desired extent, then run \texttt{ls /var/lib/mod_tile/s2o} and see which zoom levels were used (actually, in retrospective, it makes sense to generate tiles for the lower zoom levels so one can see the general area one needs to zoom in on).  X, y, and z values in hand I used the Python formula, shamelessly copy \& pasted from the OSM Wiki, to get the tile co-ordinates I needed:
+
+\begin{verbatim}
+import math
+def deg2num(lat_deg, lon_deg, zoom):
+  lat_rad = math.radians(lat_deg)
+  n = 2.0 ** zoom
+  xtile = int((lon_deg + 180.0) / 360.0 * n)
+  ytile = int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
+  return (xtile, ytile)
+\end{verbatim}
+
+Though \texttt{renderd_list} wasn't co-operating when I invoked it:
+
+\begin{verbatim}
+** (process:10517): ERROR **: 19:04:08.262: init_storage_backend: No valid storage backend found for options: s2o/
+Failed to initialise storage backend s2o/
+\end{verbatim}
+
+It turned out that I needed to pass the tile cache directly via \texttt{-t /var/lib/mod_tile}.  The program then ran, but did nothing.  Argh!  Eventually I searched \texttt{/var/log/messages} and found the following:
+
+\begin{verbatim}
+Feb 12 19:06:01 seneca renderd[2618]: ERROR: No map for: default
+\end{verbatim}
+
+The fix here was to explicitly tell the program to use the \texttt{s2o} map via \texttt{-m s2o}.  Now the tiles were rendering!
+
+Unfortunately for me, the \texttt{renderd} tiles were stored on-disk in a \htmladdnormallink{special layout}{https://github.com/openstreetmap/mod_tile#details-about-mod_tile-tile-serving} that was mapped to the appropriate pages by the Apache module but was not suitable for direct file access!  Some digging in the source showed a man page for a \texttt{convert_meta} utility, though it was not installed on my system.  This utility appeared to have been written primarily to convert from a ``plain'' format (which I wanted) to \texttt{renderd}'s special format; it also appeared to be able to convert from the special format back to a plain format.  I tried my hand at enabling and compiling this utility but was not at all successful; it seems to have long been bit-rotted.  Instead, I ended up writing a dumb script to pull all the tiles I needed:
+
+\begin{verbatim}
+#!/bin/bash
+
+# No nested arrays in bash, so manually ensure these line-up.
+# Eugene.
+zooms=(11 12 13 14 15 16 17 18)
+xmins=(322 645 1291 2582 5165 10331 20663 41327)
+xmaxs=(325 650 1300 2601 5202 10404 20809 41618)
+ymins=(743 1487 2974 5948 11897 23794 47589 95178)
+ymaxs=(744 1489 2979 5958 11917 23835 47671 95343)
+dest="media/tiles"
+
+set -x
+mkdir -p "${dest}"
+pushd "${dest}"
+for (( i=0 ; i<${#zooms[@]} ; i++ )); do
+        zoom=${zooms[$i]}
+        xmin=${xmins[$i]}
+        xmax=${xmaxs[$i]}
+        ymin=${ymins[$i]}
+        ymax=${ymaxs[$i]}
+
+        # Render tiles.
+        #render_list -z ${zoom} -Z ${zoom} -a -x ${xmin} -X ${xmax} -y ${ymin} -Y ${ymax} -t /var/lib/mod_tile -f -m s2o
+
+        # Pull tiles.
+        mkdir -p "${zoom}"
+        pushd "${zoom}"
+        for (( x=${xmin} ; x<=${xmax} ; x++ )); do
+                mkdir -p "${x}"
+                pushd "${x}"
+                for (( y=${ymin} ; y<=${ymax} ; y++ )); do
+                        wget -c "http://localhost/hot/${zoom}/${x}/${y}.png"
+                done
+                popd
+        done
+        popd
+done
+set +x
+\end{verbatim}
+
+As I said, it's pretty dumb: a real script would do something like accept an extent and then dynamically calculate the co-ordinates, but I didn't feel like figuring out all the trigonometry in \texttt{bash}, \texttt{bc}, or calling out to an inline Python script.  It also probably doesn't need the \texttt{render_list} call since the webserver will just dynamically generate any missing tiles.  There's also probably a sane way to make multiple calls to \texttt{wget} so it doesn't send a bajillion separate connections.  Anyways, awfulness aside, the script did work to pull all of the tiles over about 5-10 minutes!  The data took up about 366MB; a very reasonable amount!
+
+\ldots but would QGIS be able to use the local tiles?  While the \texttt{Layer Source}'s \texttt{URL} parameter \emph{should} accept a perfectly valid \texttt{file://} URL, that didn't mean that it'd actually work.  I was able to save the layer, but when I opened it again and double-checked its properties the URL entry was blank!  I entered and saved it again, and got the same result!  Yet, when I actually tried navigating in the map, it worked!  It was \emph{fast}, too.  So, apparently the user interface didn't understand the URL, but the underlying library sure appeared to.
+
+Local tiles for Eugene in hand, I had the cornerstone of what I was looking for and a basis to build upon.  The tiles were currently limited to Eugene, and I decided it'd be nice to have tiles for all of Oregon in case I needed to travel somewhere in-state.
+
+\subsection{Tiles for all of Oregon}
+First step to generating tiles for all of Oregon was to find a way to get the needed data.  Since \htmladdnormallink{planet.osm}{https://wiki.openstreetmap.org/wiki/Planet.osm} was some tens to hundreds of gigabytes (depending on compression level), I decided to find a way to get a more specific subset of the data.  At first I tried to use the \htmladdnormallink{QuickOSM}{https://github.com/3liz/QuickOSM} plugin, but no plugins were installable; I had to first re-compile QGIS with the \texttt{python} \texttt{USE} flag.  After I'd gotten the plugin installed, I tried to get all of the data for Oregon but a large query would timeout while a smaller query spewed the error \texttt{Error on the layer : points is not valid}.  Judging from the \htmladdnormallink{Overpass API Limitations}{https://wiki.openstreetmap.org/wiki/Overpass_API#Limitations}, my best guess was that Oregon was just to big to get data from; the limitations entry also suggested using existing static extracts, but I wasn't sure if I'd be able to find one.
+
+One of the entries on the Learn OSM \htmladdnormallink{getting data}{https://learnosm.org/en/osm-data/getting-data/} page listed \htmladdnormallink{GeoFabrik extracts}{https://download.geofabrik.de/}.  All of \htmladdnormallink{North America}{https://download.geofabrik.de/north-america.html} was available at 11.3GB.  Drilling down, I found \htmladdnormallink{US Pacific}{https://download.geofabrik.de/north-america/us-pacific.html}, er, but that was only 129MB while what I'd downloaded for Eugene earlier was 233MB; perhaps this was just Hawaii or something and not the U.S. Pacific timezone area?  \htmladdnormallink{US West}{https://download.geofabrik.de/north-america/us-west.html} seemed then a more likely candidate, but I could do without California and Washington (and not just in a data sense).  Thankfully, ignoring the ``Special Sub Regions'' section and instead looking at the ``Sub Regions'' section and choosing the \htmladdnormallink{United States of America}{https://download.geofabrik.de/north-america/us.html} had its own special \htmladdnormallink{Oregon}{https://download.geofabrik.de/north-america/us/oregon.html} sub-region at 178MB (presumably smaller than Eugene's 233MB because Eugene's \htmladdnormallink{file format}{https://learnosm.org/en/osm-data/file-formats/} was OSM while this was OSM PBF), perfect!  A quick download and database update later it was then time to begin tile-generation.
+
+The basics of generating tiles were pretty much the same as with Eugene, except I used the approximate extent for Oregon -126.2197,41.9052:-114.9559,46.3326 and a max zoom level of 7:
+
+\begin{verbatim}
+zooms=(7 8 9 10 11 12 13 14 15 16 17 18)
+xmins=(19 38 76 152 305 611 1223 2447 4895 9790 19580 39161)
+xmaxs=(23 46 92 185 370 740 1480 2960 5920 11840 23681 47363)
+ymins=(45 90 181 362 725 1451 2903 5806 11613 23227 46455 92911)
+ymaxs=(47 95 190 380 760 1521 3043 6087 12175 24351 48702 97405)
+\end{verbatim}
+
+The first thing I noticed was that generating this set of tiles was taking much longer.  By which I mean that generating Eugene's tiles seemed to take a little over 5 minutes while Oregon's took about a \emph{week}.  The amount of generated data was huge: 198G of raw tiles and 35G in \texttt{renderd}'s cache (note: the latter may be an underestimate as the large amount of data generated may have triggered auto-cleaning mechanisms in \texttt{renderd}).  Well, that's not exactly what I'd call \emph{practical}.  Pre-generating tiles for a city is thus feasible, but at the state level one would want to dynamically generate tiles or use some kind of heuristic to only generate tiles for their target areas.
+
+\subsection{Conclusion}
+Thus I was able to generate my own OSM tiles with some moderate effort using current infrastructure.  QGIS was flexible enough to use either the OSM tile server, a localhost tile server, or even a filepath to tiles on the filesystem (though the configuration UI did appear to be a bit confused by this one).  Setting up a webserver took some effort, but the solid documentation on the LearnOSM website proved to be a good foundation for the task.  Pre-generated city tiles were small enough to easily fit on all systems except, perhaps, embedded systems, but state tiles were too big for all but desktops or servers.  With local tiles on disk I no longer needed to worry about that one aspect of surveillance capitalism.  Perhaps the next step would be to look into routing solutions, since addresses are not clear from tiles and tracing routes by hand is mildly laborious.  For now, time to sit back and admire my beautiful tiles.
+
+
 % Removing Extra IP Protocols
 \section{2022-04-03 Removing Extra IP Protocols}
 Back when I was a fledgeling programmer, I took a trip to a nearby book store hoping to learn some l33t sk711z.  There I found a copy of ``\htmladdnormallink{Nmap Network Scanning}{https://nmap.org/book/}'' by Gordon ``Fyodor'' Lyon and it sounded pretty l33t, so I bought a copy and then began to read it.  One piece of knowledge I got from reading the book is that besides the usual TCP and UDP scans, \texttt{nmap} also has an IP Protocol scan, which scans for, well, IP protocols, rather than TCP or UDP ports.  The scan was quick and painless for me to run, but how to interpret the results and then remove the unneeded protocols was not apparent to me.  Over a decade after reading the book, I decided to take a serious look at analyzing and removing unused IP protocols from my network.
