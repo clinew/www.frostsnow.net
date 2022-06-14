@@ -6,6 +6,27 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2022-06-13}
+Had an issue with my Librem5 where calls would instantly disconnect.  Modem manager logs showed:
+\begin{verbatim}
+	ModemManager[647]: <warn>  [modem2] network reject indication received
+	ModemManager[647]: <warn>  [modem2]   service domain: cs
+	ModemManager[647]: <warn>  [modem2]   radio interface: lte
+	ModemManager[647]: <warn>  [modem2]   reject cause: cs-service-temporarily-not-available
+\end{verbatim}
+Turns out the modem firmware was old.  Purism sent me a new one and calls now work!  Comparing the before and after output of \texttt{mmcli -m any} shows that, beyond IDs and signal quality, the only differences appear to be:
+\begin{verbatim}
+	firmware revision: MPSS.JO.2.0.2.c1.1-00032-9607_GENNS_PACK-1  1  [Feb 25 2019 01:00:00]
+	   carrier config: default
+\end{verbatim}
+to
+\begin{verbatim}
+	      firmware revision: MPSS.JO.2.0.2.c1.1-00032-9607_GENNS_PACK-1.351938.1  1  [Nov 26 2020 02:00:00]
+	         carrier config: ROW_Generic_3GPP
+	carrier config revision: 05010821
+\end{verbatim}
+Not much to go on.  At least it's working now.
+
 \subsection{2022-03-31}
 Got this completely baffling error when running \texttt{repoman commit}:
 \begin{verbatim}
