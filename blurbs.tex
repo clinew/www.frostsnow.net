@@ -6,6 +6,32 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2022-09-01}
+I (eventually) managed to get \htmladdnormallink{Phasmophobia}{https://store.steampowered.com/app/739630/phasmophobia/} working.  Experimental Proton didn't work at all, but I got things sort of working with Proton 7.0-4.  First issue I ran into was:
+\begin{verbatim}
+002d:fixme:dbghelp:elf_search_auxv can't find symbol in module
+\end{verbatim}
+\ldots and much more followed by a crash.  This was fixed by setting the Steam launch command to \verb|PROTON_USE_WINED3D=1 %command%|.  Next I ran into an issue where the game would crash shortly after loading a contract with many messages of the form:
+\begin{verbatim}
+eventfd: Too many open files
+\end{verbatim}
+I was able to work around this by increasing the open file descriptor limit with the following series of commands:
+\begin{verbatim}
+su
+ulimit -n 65536
+su -l <user>
+export DISPLAY=:0
+\end{verbatim}
+That being said, audio did not work at all.  That might have been because I was using ALSA and \texttt{apulse} rather than PulseAudio proper.  Trying to launch the game through Windows Steam via WINE, I first ran into an issue where, before I could type in two characters of my password, Steam would crash with the following error message:
+\begin{verbatim}
+Unhandled exception: unimplemented function urlmon.dll.414 called in 32-bit code (0x7bc51bb1).
+\end{verbatim}
+This was solved by running \texttt{winetricks urlmon}.  Though Steam would launch, it would display a black screen; I worked around this by launching the game directly:
+\begin{verbatim}
+wine "/path/to/steam.exe" -no-browser +open open/minigameslist -applaunch 739630
+\end{verbatim}
+Sometimes I get issues where the mouse/keyboard aren't picked up and/or released properly, but I can workaround that by a combination re-launching the game and re-loading \texttt{i3} as needed.  Other than that, the game, including multiplayer and voice recognition, have been running just fine.
+
 \subsection{2022-06-13}
 Had an issue with my Librem5 where calls would instantly disconnect.  Modem manager logs showed:
 \begin{verbatim}
