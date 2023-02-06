@@ -6,6 +6,12 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2023-02-05}
+Had an issue building LibreCMC v1.5.12 where the build appeared to complete but no upgrade image was generated.  Re-running \texttt{make} with \texttt{V=s} showed: \texttt{[mktplinkfw] *** error: images are too big by 53697 bytes}.  I was able to fix this by running \texttt{make menuconfig} and disabling IPv6.  No one likes IPv6 anyways.
+
+\subsection{2023-01-16}
+I ran into an \htmladdnormallink{issue}{https://gogs.librecmc.org/libreCMC/libreCMC/issues/158} building LibreCMC v1.5.10 where none of the package mirrors for OpenSSL 1.1.1p had the package.  I was able to workaround this by opening \texttt{package/libs/openssl/Makefile} and adding a mirror from \htmladdnormallink{the OpenSSL mirror list}{https://www.openssl.org/source/mirror.html} to the \texttt{PKG_SOURCE_URL} variable.
+
 \subsection{2022-12-26}
 Had a Minetest mod issue that wasn't giving me a stack trace.  In order to get the stack trace I had to switch from Lua 5.1 to LuaJIT (\texttt{USE=-lua_single_target_lua_5-1 lua_single_target_luajit}).  Weird.
 
