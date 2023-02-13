@@ -6,6 +6,9 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2023-02-12}
+So I had this \htmladdnormallink{weird bug}{https://github.com/beagleboard/linux/issues/278} which turned out to have been caused by \texttt{umask} being set to \texttt{0777}.  Since all the documentation I found stated that the default value should be \texttt{0022}, fixing should be a matter of finding the configuration file where it was erroneously being set and editing it, right?  Was it set in \texttt{/etc/profile}?  No.  How about \texttt{/etc/profile.d}?  No.  \texttt{\textasciitilde /.bash_profile}?  No.  \texttt{\textasciitilde /.bashrc}?  No.  \texttt{/etc/bash/bashrc}?  \texttt{/etc/skel/.bash_profile}?  \texttt{/etc/skel/.bashrc}?  \texttt{/etc/profile.env}?  \texttt{/etc/env.d}?  \texttt{/etc/environment}?  No.  No.  No.  No.  No.  No.  Ugh.  I just set it at the end of \texttt{/etc/profile} for now.
+
 \subsection{2023-02-05}
 Had an issue building LibreCMC v1.5.12 where the build appeared to complete but no upgrade image was generated.  Re-running \texttt{make} with \texttt{V=s} showed: \texttt{[mktplinkfw] *** error: images are too big by 53697 bytes}.  I was able to fix this by running \texttt{make menuconfig} and disabling IPv6.  No one likes IPv6 anyways.
 
