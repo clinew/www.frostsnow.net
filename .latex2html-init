@@ -7,7 +7,7 @@ $EXTRA_IMAGE_SCALE = 2;
 
 sub top_navigation_panel {
 	# Generic website header.
-	"<h1 align=\"center\">www.frostsnow.net</h1><p align=\"center\">Due to the COVID-19 outbreak, those of us at www.frostsnow.net ask users to wash their keyboards before and after visiting so as to avoid spreading the contagion to other visitors of the site.  Thank you for your understanding.<HR>\n" .
+	"<h1 align=\"center\">www.frostsnow.net</h1><p align=\"center\">Please present proof of COVID-19 vaccination as an X.509v3 extension in your client certificate in order to access this site.  Thank you!<HR>\n" .
 	# Sections and navigation.
 	"<table align=\"center\">\n" .
 	# Website sections.
