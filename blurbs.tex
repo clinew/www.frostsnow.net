@@ -6,6 +6,19 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2024-04-29}
+Two days after the \htmladdnormallink{xz backdoor announcement}{https://www.openwall.com/lists/oss-security/2024/03/29/4}, I found the following suspect entries in my log:
+\begin{verbatim}
+	Apr  1 16:13:25 hesse sshd[10047]: Invalid user jiatan from 138.197.165.171 port 34390
+	Apr  1 16:13:25 hesse sshd[10047]: Connection closed by invalid user jiatan 138.197.165.171 port 34390 [preauth]
+	Apr  1 16:13:25 hesse sshd[10052]: Invalid user jiat0218 from 138.197.165.171 port 34404
+	Apr  1 16:13:25 hesse sshd[10052]: Connection closed by invalid user jiat0218 138.197.165.171 port 34404 [preauth]
+	Apr  1 16:13:26 hesse sshd[10055]: Invalid user jiat75 from 138.197.165.171 port 34408
+	Apr  1 16:13:26 hesse sshd[10055]: Connection closed by invalid user jiat75 138.197.165.171 port 34408 [preauth]
+	Apr  1 16:15:26 hesse sshd[10058]: fatal: Timeout before authentication for 138.197.165.171 port 34412
+\end{verbatim}
+\ldots plus three similar sets of entries, and then never again.  The conclusion is obvious: I was the target.  I'm truly flattered.
+
 \subsection{2024-03-25}
 As much as I'm liking my \htmladdnormallink{NexDock 360}{https://shop.puri.sm/shop/lapdock-kit/}, they sure make finding a replacement battery difficult.
 NexDock has \htmladdnormallink{instructions for replacing a battery}{https://nexdock.com/support/nexdock-360-battery-replacement/} but nowhere to order one that I can see.
