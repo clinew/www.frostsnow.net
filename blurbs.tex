@@ -6,6 +6,12 @@
 
 Thoughts that are not worth their own blog.
 
+\subsection{2024-04-29 #2}
+Had an issue upgrading my \htmladdnormallink{BeagleBone Black}{https://beagleboard.org/black/} kernel from the 5.10 to the 6.1 series where the ethernet interface disappeared.
+Turned out the driver had been changed from \texttt{cpsw} to \texttt{cpsw-switch};
+I had to enable first \texttt{NET_SWITCHDEV} and then \texttt{TI_CPSW_SWITCHDEV} in order to fix the issue.
+Thanks to \texttt{zmatt} for helping debug the issue!
+
 \subsection{2024-04-29}
 Two days after the \htmladdnormallink{xz backdoor announcement}{https://www.openwall.com/lists/oss-security/2024/03/29/4}, I found the following suspect entries in my log:
 \begin{verbatim}
